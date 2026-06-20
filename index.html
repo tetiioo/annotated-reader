@@ -399,6 +399,7 @@ function handleSelection() {
 
 addBtn.addEventListener('mousedown', (e) => {
   e.preventDefault();
+  e.stopPropagation();
   if (!savedRange) return;
   const ch = chapterOfNode(savedRange.startContainer);
   if (!ch) return;
@@ -516,6 +517,7 @@ docEl.addEventListener('click', (e) => {
 
 /* click elsewhere closes popover */
 document.addEventListener('mousedown', (e) => {
+  if (e.target === addBtn || addBtn.contains(e.target)) return;
   if (popover.style.display === 'block' && !popover.contains(e.target) && !e.target.closest('mark.anno')) {
     closePopover();
   }
