@@ -123,15 +123,15 @@
   }
   #addBtn:hover { background: #5a3fd6; }
 
-  /* ---- Comment panel (fixed, always on screen) ---- */
+  /* ---- Comment panel (anchored beside the selected text) ---- */
   #popover {
-    position: fixed; z-index: 50; width: 330px; display: none;
-    right: 28px; bottom: 28px;
+    position: fixed; z-index: 50; width: 320px; display: none;
+    left: 0; top: 0;
     background: var(--panel); border: 1px solid var(--line);
     border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.18); overflow: hidden;
     animation: popIn .14s ease-out;
   }
-  @keyframes popIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @keyframes popIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   #popover .pop-head {
     padding: 10px 14px; border-bottom: 1px solid var(--line);
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
@@ -395,6 +395,9 @@ function maybeStartComment() {
   const end   = getOffsetWithin(ch, range.endContainer, range.endOffset);
   if (start == null || end == null || end <= start) return;
 
+  // capture the selection's screen position BEFORE clearing it, so we can anchor the panel
+  const rect = range.getBoundingClientRect();
+
   state.pending = {
     id: 'a' + Date.now() + Math.floor(Math.random()*1000),
     chapterId: ch.dataset.chapterId,
@@ -403,15 +406,39 @@ function maybeStartComment() {
     comment: ''
   };
   sel.removeAllRanges();
-  openEditor(state.pending);
+  openEditor(state.pending, rect);
 }
 
-/* ---------- Panel (editor + viewer) — fixed bottom-right, always visible ---------- */
-function placePopover() {
+/* ---------- Panel (editor + viewer) — anchored beside the text, clamped on screen ---------- */
+function placePopover(rect) {
+  const W = 320, gap = 18, margin = 12;
   popover.style.display = 'block';
+
+  // Fallback if no anchor rect provided: bottom-right corner
+  if (!rect) {
+    popover.style.left = (window.innerWidth - W - 28) + 'px';
+    popover.style.top  = (window.innerHeight - 220) + 'px';
+    return;
+  }
+
+  // Horizontal: prefer to the RIGHT of the selection; else to the LEFT; else clamp
+  let left = rect.right + gap;
+  if (left + W > window.innerWidth - margin) left = rect.left - W - gap;
+  if (left < margin) left = Math.max(margin, window.innerWidth - W - margin);
+  popover.style.left = left + 'px';
+
+  // Vertical: align with the selection top, then clamp once height is known
+  popover.style.top = rect.top + 'px';
+  requestAnimationFrame(() => {
+    const h = popover.offsetHeight;
+    let t = rect.top;
+    if (t + h > window.innerHeight - margin) t = window.innerHeight - h - margin;
+    if (t < margin) t = margin;
+    popover.style.top = t + 'px';
+  });
 }
 
-function openEditor(anno) {
+function openEditor(anno, rect) {
   popover.innerHTML = `
     <div class="pop-head">New comment <span class="icon-x" data-act="cancel">✕</span></div>
     <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
@@ -420,7 +447,7 @@ function openEditor(anno) {
       <button class="btn" data-act="cancel">Cancel</button>
       <button class="btn primary" data-act="save">Save comment</button>
     </div>`;
-  placePopover();
+  placePopover(rect);
   const ta = popover.querySelector('textarea');
   ta.focus();
   popover.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
