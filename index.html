@@ -78,10 +78,68 @@
   }
   .brand h1 { font-size: 15px; margin: 0; letter-spacing: -.2px; }
   .brand p { font-size: 12px; color: var(--muted); margin: 3px 0 0; line-height: 1.4; }
+  .brand-mid { flex: 1; min-width: 0; }
+  .brand-actions { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
   .theme-toggle {
-    margin-left: auto; border: none; background: none; cursor: pointer;
+    border: none; background: none; cursor: pointer;
     font-size: 16px; color: var(--muted); padding: 2px;
   }
+  .help-btn {
+    width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink-3); cursor: pointer; font-weight: 700;
+    font-size: 13px; display: grid; place-items: center;
+  }
+  .help-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .privacy-badge {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 5px;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--ink-3); font-size: 10.5px; font-weight: 600;
+    cursor: pointer; font-family: inherit; max-width: 100%;
+  }
+  .privacy-badge:hover { border-color: #2e9e5b; color: #2e9e5b; }
+
+  /* ---- Onboarding / help modal ---- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.5);
+    display: none; align-items: center; justify-content: center; padding: 20px;
+    backdrop-filter: blur(2px);
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+    max-width: 540px; width: 100%; max-height: 90vh; overflow-y: auto;
+    box-shadow: var(--shadow-lg); animation: popIn .18s ease-out; position: relative;
+  }
+  .modal-close {
+    position: absolute; top: 14px; right: 16px; border: none; background: none;
+    font-size: 18px; color: var(--muted); cursor: pointer; line-height: 1;
+  }
+  .modal-close:hover { color: var(--ink); }
+  .modal-hero { padding: 28px 28px 6px; }
+  .modal-hero .m-logo {
+    width: 42px; height: 42px; border-radius: 12px; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 21px;
+  }
+  .modal-hero h2 { margin: 14px 0 5px; font-size: 22px; letter-spacing: -.3px; color: var(--ink); }
+  .modal-hero p { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.55; }
+  .steps { padding: 10px 28px 4px; }
+  .step { display: flex; gap: 14px; padding: 13px 0; border-top: 1px solid var(--line); }
+  .step:first-child { border-top: none; }
+  .step .ic {
+    width: 34px; height: 34px; border-radius: 9px; background: var(--accent-soft);
+    color: var(--accent); display: grid; place-items: center; font-size: 17px; flex-shrink: 0;
+  }
+  .step .st-t { font-weight: 600; font-size: 14.5px; margin-bottom: 2px; color: var(--ink); }
+  .step .st-d { color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+  .privacy-callout {
+    margin: 10px 28px 6px; padding: 14px 16px; border-radius: 12px;
+    background: linear-gradient(0deg, var(--accent-soft), var(--accent-soft));
+    border: 1px solid var(--line);
+  }
+  .privacy-callout .pc-t { font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 7px; color: var(--ink); }
+  .privacy-callout .pc-d { font-size: 12.5px; color: var(--ink-2); line-height: 1.6; margin-top: 6px; }
+  .modal-actions { padding: 18px 28px 24px; display: flex; gap: 10px; }
+  .modal-actions .btn { flex: 1; padding: 11px; font-size: 13.5px; }
 
   /* tabs */
   .tabs { display: flex; padding: 8px 12px 0; gap: 4px; border-bottom: 1px solid var(--line); }
@@ -251,11 +309,14 @@
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="logo">✎</div>
-      <div>
+      <div class="brand-mid">
         <h1>Annotated Reader</h1>
-        <p>Select any text to comment.</p>
+        <button class="privacy-badge" id="privacyBadge" title="How your privacy is protected">🔒 Files stay on your device</button>
       </div>
-      <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">◐</button>
+      <div class="brand-actions">
+        <button class="help-btn" id="helpBtn" title="How it works" aria-label="How it works">?</button>
+        <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">◐</button>
+      </div>
     </div>
 
     <div class="tabs">
@@ -302,6 +363,48 @@
     <div id="popover"></div>
     <div id="toast"></div>
   </main>
+
+  <!-- Onboarding / help -->
+  <div class="overlay" id="onboarding">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="How Annotated Reader works">
+      <button class="modal-close" id="obClose" aria-label="Close">✕</button>
+      <div class="modal-hero">
+        <div class="m-logo">✎</div>
+        <h2>Comment on any document — privately</h2>
+        <p>Open a Markdown file, highlight what matters, and leave comments anchored to the exact words. Here’s the 30-second tour.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="ic">📂</div>
+          <div><div class="st-t">1 · Open a Markdown file</div>
+          <div class="st-d">It splits into chapters automatically from your <code>#</code> and <code>##</code> headings, listed in the sidebar.</div></div>
+        </div>
+        <div class="step">
+          <div class="ic">🖍️</div>
+          <div><div class="st-t">2 · Select text to comment</div>
+          <div class="st-d">Drag to select any sentence, type your note, and it turns into a highlight.</div></div>
+        </div>
+        <div class="step">
+          <div class="ic">💬</div>
+          <div><div class="st-t">3 · Click a highlight to read it</div>
+          <div class="st-d">Open, edit, or delete any comment. The <b>Comments</b> tab lists them all — click one to jump to it.</div></div>
+        </div>
+        <div class="step">
+          <div class="ic">🔒</div>
+          <div><div class="st-t">4 · Hand it back privately</div>
+          <div class="st-d"><b>Download .md with comments</b> tucks your notes invisibly inside the file. Send it back — the other person opens it here and sees everything.</div></div>
+        </div>
+      </div>
+      <div class="privacy-callout">
+        <div class="pc-t">🔒 Your document never leaves your device</div>
+        <div class="pc-d">Files are read inside your browser only — there’s no server and no upload. Want proof? Open your browser’s <b>Network</b> tab while opening a file (you’ll see zero requests), or turn off Wi-Fi after the page loads — everything still works.</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="obSample">Explore the sample</button>
+        <button class="btn primary" id="obOpen">Open my .md file</button>
+      </div>
+    </div>
+  </div>
 
   <input type="file" id="fileInput" accept=".md,.markdown,.txt" />
   <input type="file" id="projectInput" accept=".json" />
@@ -899,7 +1002,25 @@ document.getElementById('sampleBtn').onclick = () => {
   if (location.hash) history.replaceState(null, '', location.pathname);
   loadDocument(SAMPLE);
 };
+
+/* ---------- Onboarding / help ---------- */
+const onboarding = document.getElementById('onboarding');
+function openOnboarding() { onboarding.classList.add('show'); }
+function closeOnboarding() { onboarding.classList.remove('show'); localStorage.setItem('annoreader:onboarded', '1'); }
+document.getElementById('helpBtn').onclick = openOnboarding;
+document.getElementById('privacyBadge').onclick = openOnboarding;
+document.getElementById('obClose').onclick = closeOnboarding;
+document.getElementById('obOpen').onclick = () => { closeOnboarding(); fileInput.click(); };
+document.getElementById('obSample').onclick = () => {
+  if (location.hash) history.replaceState(null, '', location.pathname);
+  loadDocument(SAMPLE); closeOnboarding();
+};
+onboarding.addEventListener('mousedown', e => { if (e.target === onboarding) closeOnboarding(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && onboarding.classList.contains('show')) closeOnboarding(); });
+
+/* ---------- Start ---------- */
 if (!loadFromHash()) loadDocument(SAMPLE);
+if (!localStorage.getItem('annoreader:onboarded')) openOnboarding();
 </script>
 </body>
 </html>
