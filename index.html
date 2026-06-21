@@ -175,14 +175,15 @@
   mark.anno:hover { background: var(--hl-active); }
   mark.anno.active { background: var(--hl-active); box-shadow: 0 0 0 2px var(--hl-active); }
 
-  /* coachmark */
+  /* coachmark — fixed bottom toast, never overlaps content */
   #coach {
-    position: absolute; z-index: 30; background: var(--accent); color: #fff;
-    padding: 9px 14px; border-radius: 10px; font-size: 13px; font-weight: 500;
-    box-shadow: var(--shadow-lg); display: none; max-width: 240px;
+    position: fixed; z-index: 45; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: var(--accent); color: #fff; padding: 11px 18px; border-radius: 999px;
+    font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); display: none;
+    align-items: center; gap: 10px; max-width: calc(100% - 24px); white-space: nowrap;
   }
-  #coach::after { content: ''; position: absolute; left: 24px; bottom: -7px; border: 7px solid transparent; border-top-color: var(--accent); border-bottom: 0; }
-  #coach .x { margin-left: 8px; opacity: .8; cursor: pointer; font-weight: 700; }
+  #coach .x { opacity: .85; cursor: pointer; font-weight: 700; font-size: 14px; }
+  #coach .x:hover { opacity: 1; }
 
   /* ---- Comment panel ---- */
   #popover {
@@ -773,12 +774,9 @@ themeToggle.onclick = () => {
 /* ---------- Coachmark ---------- */
 function maybeShowCoach() {
   if (localStorage.getItem('annoreader:coached')) return;
-  const p = docEl.querySelector('p'); if (!p) return;
-  const r = p.getBoundingClientRect(), mr = mainEl.getBoundingClientRect();
-  coach.innerHTML = '👆 Select any text to add a comment <span class="x" id="coachX">✕</span>';
-  coach.style.display = 'block';
-  coach.style.left = (r.left - mr.left + mainEl.scrollLeft) + 'px';
-  coach.style.top = (r.top - mr.top + mainEl.scrollTop - 50) + 'px';
+  if (!docEl.querySelector('p')) return;
+  coach.innerHTML = '👆 Select any text to add a comment <span class="x" id="coachX" aria-label="Dismiss">✕</span>';
+  coach.style.display = 'flex';
   document.getElementById('coachX').onclick = (e) => { e.stopPropagation(); dismissCoach(); };
 }
 function dismissCoach() { coach.style.display = 'none'; localStorage.setItem('annoreader:coached', '1'); }
