@@ -9,6 +9,7 @@
 <title>Annotated Reader</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <style>
   :root {
     --bg: #f7f6f3;
@@ -185,6 +186,14 @@
   #coach .x { opacity: .85; cursor: pointer; font-weight: 700; font-size: 14px; }
   #coach .x:hover { opacity: 1; }
 
+  /* toast */
+  #toast {
+    position: fixed; z-index: 70; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: #1f1f25; color: #fff; padding: 12px 20px; border-radius: 12px;
+    font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); display: none;
+    max-width: calc(100% - 24px); text-align: center; animation: popIn .14s ease-out;
+  }
+
   /* ---- Comment panel ---- */
   #popover {
     position: fixed; z-index: 50; width: 320px; display: none; left: 0; top: 0;
@@ -264,6 +273,7 @@
       </div>
       <button class="btn primary" id="loadBtn">Open .md file</button>
       <div class="group-label">Share &amp; save</div>
+      <button class="btn primary" id="shareBtn">🔗 Copy share link</button>
       <button class="btn" id="exportHtmlBtn">Export as webpage ↗</button>
       <div class="btn-row">
         <button class="btn" id="saveProjectBtn">Save project</button>
@@ -285,6 +295,7 @@
 
     <div id="coach"></div>
     <div id="popover"></div>
+    <div id="toast"></div>
   </main>
 
   <input type="file" id="fileInput" accept=".md,.markdown,.txt" />
@@ -752,6 +763,44 @@ function downloadFile(content, name, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/* ---------- Share link (doc + all comments embedded in the URL) ---------- */
+document.getElementById('shareBtn').onclick = async () => {
+  if (!state.md) { toast('Open a document first.'); return; }
+  if (typeof LZString === 'undefined') { toast('Share library still loading — reload and try again.'); return; }
+  const payload = JSON.stringify({ t: state.title, m: state.md, a: state.annotations });
+  const packed = LZString.compressToEncodedURIComponent(payload);
+  const url = location.origin + location.pathname + '#doc=' + packed;
+  const n = state.annotations.length;
+  let msg = `🔗 Link copied — it includes the document and all ${n} comment${n===1?'':'s'}.`;
+  if (url.length > 14000) msg += ' (Large doc: if your chat app rejects the link, use “Save project” instead.)';
+  try { await navigator.clipboard.writeText(url); toast(msg); }
+  catch { window.prompt('Copy this share link:', url); }
+};
+
+/* Load a shared doc+comments from the URL hash, if present */
+function loadFromHash() {
+  const m = location.hash.match(/[#&]doc=([^&]+)/);
+  if (!m || typeof LZString === 'undefined') return false;
+  try {
+    const obj = JSON.parse(LZString.decompressFromEncodedURIComponent(m[1]));
+    if (obj && typeof obj.m === 'string') {
+      loadDocument(obj.m, Array.isArray(obj.a) ? obj.a : []);
+      const n = obj.a ? obj.a.length : 0;
+      setTimeout(() => toast(`Opened a shared document with ${n} comment${n===1?'':'s'}.`), 300);
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.style.display = 'none', 4000);
+}
+
 /* ---------- Tabs / sidebar / theme ---------- */
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -809,8 +858,11 @@ We highlight the relevant passage and anchor a comment to it. Clicking the highl
 
 Next we will add multi-user comments, threaded replies, and a way to resolve discussions. For now, try selecting any sentence above and writing a comment.`;
 
-document.getElementById('sampleBtn').onclick = () => loadDocument(SAMPLE);
-loadDocument(SAMPLE);
+document.getElementById('sampleBtn').onclick = () => {
+  if (location.hash) history.replaceState(null, '', location.pathname);
+  loadDocument(SAMPLE);
+};
+if (!loadFromHash()) loadDocument(SAMPLE);
 </script>
 </body>
 </html>
