@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Annotated Reader</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
@@ -430,6 +433,13 @@ function placePopover(anchorRect) {
   left = Math.max(8, Math.min(left, maxLeft + mainEl.scrollLeft));
   popover.style.left = left + 'px';
   popover.style.top  = top + 'px';
+  // make sure the popover is actually visible in the scroll viewport
+  requestAnimationFrame(() => {
+    const pr = popover.getBoundingClientRect();
+    const mvr = mainEl.getBoundingClientRect();
+    if (pr.bottom > mvr.bottom) mainEl.scrollTop += (pr.bottom - mvr.bottom) + 16;
+    else if (pr.top < mvr.top) mainEl.scrollTop -= (mvr.top - pr.top) + 16;
+  });
 }
 
 function openEditor(anno, anchorRect) {
