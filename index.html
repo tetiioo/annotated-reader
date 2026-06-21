@@ -8,17 +8,40 @@
 <meta http-equiv="Expires" content="0" />
 <title>Annotated Reader</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
   :root {
     --bg: #f7f6f3;
     --panel: #ffffff;
+    --panel-2: #faf9f7;
     --ink: #2b2b2b;
-    --muted: #8a8a8a;
+    --ink-2: #4a4a4a;
+    --ink-3: #6b6b6b;
+    --muted: #6b6b6b;
     --line: #e7e5df;
     --accent: #6b4ee6;
+    --accent-soft: #ece7fb;
     --hl: #fff1a8;
     --hl-active: #ffd84d;
+    --hl-text: #5a4500;
     --shadow: 0 4px 24px rgba(0,0,0,.08);
+    --shadow-lg: 0 10px 40px rgba(0,0,0,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1a1a1f; --panel: #232329; --panel-2: #2a2a31;
+      --ink: #e9e8ea; --ink-2: #c4c3c8; --ink-3: #9b9aa1; --muted: #9b9aa1;
+      --line: #36363f; --accent: #a08bff; --accent-soft: #2e2a44;
+      --hl: #6b5d1a; --hl-active: #968420; --hl-text: #ffe6a0;
+      --shadow: 0 4px 24px rgba(0,0,0,.4); --shadow-lg: 0 10px 40px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1a1a1f; --panel: #232329; --panel-2: #2a2a31;
+    --ink: #e9e8ea; --ink-2: #c4c3c8; --ink-3: #9b9aa1; --muted: #9b9aa1;
+    --line: #36363f; --accent: #a08bff; --accent-soft: #2e2a44;
+    --hl: #6b5d1a; --hl-active: #968420; --hl-text: #ffe6a0;
+    --shadow: 0 4px 24px rgba(0,0,0,.4); --shadow-lg: 0 10px 40px rgba(0,0,0,.55);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
@@ -30,10 +53,11 @@
     height: 100vh;
     overflow: hidden;
   }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
   /* ---- Sidebar ---- */
   .sidebar {
-    width: 270px;
+    width: 280px;
     flex-shrink: 0;
     background: var(--panel);
     border-right: 1px solid var(--line);
@@ -42,93 +66,129 @@
     height: 100%;
   }
   .brand {
-    padding: 18px 20px 14px;
+    padding: 16px 18px 12px;
     border-bottom: 1px solid var(--line);
+    display: flex; align-items: flex-start; gap: 10px;
   }
-  .brand h1 { font-size: 16px; margin: 0; letter-spacing: -.2px; }
-  .brand p { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
-  .toc { flex: 1; overflow-y: auto; padding: 10px 8px; }
+  .brand .logo {
+    width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+    background: var(--accent); color: #fff; display: grid; place-items: center;
+    font-size: 16px;
+  }
+  .brand h1 { font-size: 15px; margin: 0; letter-spacing: -.2px; }
+  .brand p { font-size: 12px; color: var(--muted); margin: 3px 0 0; line-height: 1.4; }
+  .theme-toggle {
+    margin-left: auto; border: none; background: none; cursor: pointer;
+    font-size: 16px; color: var(--muted); padding: 2px;
+  }
+
+  /* tabs */
+  .tabs { display: flex; padding: 8px 12px 0; gap: 4px; border-bottom: 1px solid var(--line); }
+  .tab {
+    flex: 1; padding: 8px 6px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    color: var(--ink-3); border: none; background: none; border-bottom: 2px solid transparent;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .count {
+    background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700;
+    border-radius: 9px; padding: 0 6px; min-width: 18px; text-align: center;
+  }
+
+  .panel-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+
+  /* TOC */
   .toc-item {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px; margin: 2px 0;
-    border-radius: 8px; cursor: pointer; font-size: 13.5px;
-    color: #444; line-height: 1.3;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 12px; margin: 2px 0; border-radius: 8px; cursor: pointer;
+    font-size: 13.5px; color: var(--ink-2); line-height: 1.3; border: none;
+    background: none; width: 100%; text-align: left; font-family: inherit;
+    transition: background .12s;
   }
-  .toc-item:hover { background: #f1eefb; }
-  .toc-item.active { background: #ece7fb; color: var(--accent); font-weight: 600; }
-  .toc-item.lvl3 { padding-left: 26px; font-size: 12.5px; color: #666; }
+  .toc-item:hover { background: var(--accent-soft); }
+  .toc-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .toc-item.lvl2 { padding-left: 24px; font-size: 12.5px; color: var(--ink-3); }
   .toc-badge {
-    flex-shrink: 0;
-    min-width: 20px; height: 20px; padding: 0 6px;
-    border-radius: 10px; background: var(--hl-active); color: #5a4500;
-    font-size: 11px; font-weight: 700;
+    flex-shrink: 0; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+    background: var(--hl-active); color: var(--hl-text); font-size: 11px; font-weight: 700;
     display: inline-flex; align-items: center; justify-content: center;
   }
-  .toolbar { padding: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-  .btn {
-    appearance: none; border: 1px solid var(--line); background: #fff;
-    padding: 8px 10px; border-radius: 8px; font-size: 12.5px; cursor: pointer;
-    color: #333; font-weight: 600; text-align: center;
+
+  /* comments list */
+  .clist-empty { padding: 30px 18px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; }
+  .citem {
+    padding: 11px 12px; margin: 4px 2px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel-2); transition: border-color .12s, background .12s;
   }
-  .btn:hover { background: #f5f3ff; border-color: #d9d2f7; }
+  .citem:hover { border-color: var(--accent); }
+  .citem.orphan { opacity: .7; border-style: dashed; }
+  .citem .cquote {
+    font-size: 12px; color: var(--hl-text); background: var(--hl); border-radius: 5px;
+    padding: 2px 6px; display: inline-block; margin-bottom: 6px;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .citem .ctext { font-size: 13px; color: var(--ink); line-height: 1.5; }
+  .citem .cmeta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .citem .orphan-tag { color: #c0392b; font-weight: 600; }
+
+  .toolbar { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 7px; }
+  .author-row { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .author-row label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .author-row input {
+    flex: 1; border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px;
+    font-size: 12.5px; font-family: inherit; background: var(--panel); color: var(--ink);
+  }
+  .btn {
+    appearance: none; border: 1px solid var(--line); background: var(--panel);
+    padding: 8px 10px; border-radius: 8px; font-size: 12.5px; cursor: pointer;
+    color: var(--ink); font-weight: 600; text-align: center; font-family: inherit;
+    transition: background .12s, border-color .12s;
+  }
+  .btn:hover { background: var(--accent-soft); border-color: var(--accent); }
   .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .btn.primary:hover { background: #5a3fd6; }
-  .btn-row { display: flex; gap: 8px; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn-row { display: flex; gap: 7px; }
   .btn-row .btn { flex: 1; }
+  .group-label { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 4px 2px 0; font-weight: 700; }
 
   /* ---- Main reading area ---- */
   .main { flex: 1; overflow-y: auto; position: relative; }
-  .doc {
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 56px 80px 160px 56px;
-  }
-  .doc h1 { font-size: 30px; letter-spacing: -.5px; margin: 0 0 8px; }
-  .doc h2 { font-size: 23px; letter-spacing: -.3px; margin: 44px 0 10px; padding-top: 8px; }
-  .doc h3 { font-size: 18px; margin: 30px 0 8px; }
-  .doc p, .doc li { font-size: 16px; line-height: 1.72; color: #333; }
+  .doc { max-width: 760px; margin: 0 auto; padding: 64px 56px 200px; }
+  .doc h1 { font-size: 30px; letter-spacing: -.5px; margin: 0 0 8px; color: var(--ink); }
+  .doc h2 { font-size: 23px; letter-spacing: -.3px; margin: 44px 0 10px; padding-top: 8px; color: var(--ink); }
+  .doc h3 { font-size: 20px; margin: 30px 0 8px; color: var(--ink); }
+  .doc p, .doc li { font-size: 16px; line-height: 1.72; color: var(--ink-2); }
   .doc ul, .doc ol { padding-left: 24px; }
-  .doc blockquote {
-    margin: 18px 0; padding: 4px 18px; border-left: 3px solid #d8d2f5;
-    color: #555; background: #faf9ff;
-  }
-  .doc code {
-    background: #f0eef8; padding: 2px 6px; border-radius: 5px;
-    font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
+  .doc blockquote { margin: 18px 0; padding: 4px 18px; border-left: 3px solid var(--accent-soft); color: var(--ink-3); background: var(--panel-2); }
+  .doc code { background: var(--panel-2); padding: 2px 6px; border-radius: 5px; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .doc pre { background: #2b2740; color: #eee; padding: 16px; border-radius: 10px; overflow-x:auto; }
   .doc pre code { background: none; color: inherit; padding: 0; }
   .doc img { max-width: 100%; border-radius: 8px; }
   .doc hr { border: none; border-top: 1px solid var(--line); margin: 36px 0; }
+  .doc a { color: var(--accent); }
 
-  /* highlight marks */
   mark.anno {
-    background: var(--hl);
-    border-bottom: 2px solid #ecc94b;
-    border-radius: 2px;
-    cursor: pointer;
-    padding: 1px 0;
-    transition: background .15s;
+    background: var(--hl); border-radius: 2px; cursor: pointer; padding: 1px 0;
+    transition: background .15s; color: inherit;
+    text-decoration: underline; text-decoration-color: var(--hl-active); text-underline-offset: 2px;
   }
   mark.anno:hover { background: var(--hl-active); }
-  mark.anno.active { background: var(--hl-active); box-shadow: 0 0 0 3px rgba(255,216,77,.4); }
+  mark.anno.active { background: var(--hl-active); box-shadow: 0 0 0 2px var(--hl-active); }
 
-  /* ---- Floating "add comment" button on selection ---- */
-  #addBtn {
-    position: absolute; z-index: 40; display: none;
-    background: var(--accent); color: #fff; border: none;
-    padding: 7px 12px; border-radius: 20px; font-size: 12.5px; font-weight: 600;
-    cursor: pointer; box-shadow: var(--shadow);
+  /* coachmark */
+  #coach {
+    position: absolute; z-index: 30; background: var(--accent); color: #fff;
+    padding: 9px 14px; border-radius: 10px; font-size: 13px; font-weight: 500;
+    box-shadow: var(--shadow-lg); display: none; max-width: 240px;
   }
-  #addBtn:hover { background: #5a3fd6; }
+  #coach::after { content: ''; position: absolute; left: 24px; bottom: -7px; border: 7px solid transparent; border-top-color: var(--accent); border-bottom: 0; }
+  #coach .x { margin-left: 8px; opacity: .8; cursor: pointer; font-weight: 700; }
 
-  /* ---- Comment panel (anchored beside the selected text) ---- */
+  /* ---- Comment panel ---- */
   #popover {
-    position: fixed; z-index: 50; width: 320px; display: none;
-    left: 0; top: 0;
+    position: fixed; z-index: 50; width: 320px; display: none; left: 0; top: 0;
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.18); overflow: hidden;
+    border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden;
     animation: popIn .14s ease-out;
   }
   @keyframes popIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -138,47 +198,75 @@
     color: var(--muted); display:flex; align-items:center; justify-content:space-between;
   }
   #popover .pop-quote {
-    margin: 10px 14px 0; padding: 8px 10px; font-size: 12.5px; color: #6a5a00;
-    background: #fff8db; border-radius: 8px; border-left: 3px solid var(--hl-active);
-    max-height: 70px; overflow-y: auto;
+    margin: 10px 14px 0; padding: 8px 10px; font-size: 12.5px; color: var(--hl-text);
+    background: var(--hl); border-radius: 8px; max-height: 70px; overflow-y: auto;
   }
   #popover textarea {
     width: calc(100% - 28px); margin: 10px 14px; min-height: 84px; resize: vertical;
     border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
-    font-size: 14px; font-family: inherit; line-height: 1.5;
+    font-size: 14px; font-family: inherit; line-height: 1.5; background: var(--panel); color: var(--ink);
   }
-  #popover .pop-body { padding: 6px 14px 12px; font-size: 14px; line-height: 1.55; color: #333; white-space: pre-wrap; }
-  #popover .pop-actions { display: flex; gap: 8px; padding: 0 14px 14px; }
+  #popover .pop-body { padding: 6px 14px 4px; font-size: 14px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
+  #popover .pop-author { padding: 0 14px 12px; font-size: 11.5px; color: var(--muted); }
+  #popover .pop-actions { display: flex; gap: 8px; padding: 6px 14px 14px; }
   #popover .pop-actions .btn { flex: 1; padding: 7px; }
-  .icon-x { cursor:pointer; color: var(--muted); font-weight: 700; }
-  .icon-x:hover { color: #333; }
+  .icon-x { cursor:pointer; color: var(--muted); font-weight: 700; border: none; background: none; font-size: 14px; padding: 2px 4px; }
+  .icon-x:hover { color: var(--ink); }
 
-  /* empty state / dropzone */
-  #empty {
-    position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; text-align: center; color: var(--muted);
-    padding: 40px;
-  }
-  #empty h2 { color: #444; font-size: 20px; margin: 18px 0 6px; }
+  /* empty state */
+  #empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--muted); padding: 40px; }
+  #empty h2 { color: var(--ink-2); font-size: 20px; margin: 18px 0 6px; }
   #empty p { max-width: 420px; line-height: 1.6; }
-  .drop { margin-top: 22px; border: 2px dashed #d2cdf0; border-radius: 14px; padding: 30px 40px; background:#fbfaff; }
+  .drop { margin-top: 22px; border: 2px dashed var(--line); border-radius: 14px; padding: 30px 40px; background: var(--panel-2); }
+  .main.dragging .drop, .main.dragging::after { }
+  .main.dragging { box-shadow: inset 0 0 0 3px var(--accent); }
   .hide { display: none !important; }
   input[type=file] { display: none; }
+
+  /* mobile */
+  .menu-btn { display: none; }
+  @media (max-width: 820px) {
+    .sidebar { position: fixed; z-index: 60; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform .2s; box-shadow: var(--shadow-lg); }
+    .sidebar.open { transform: none; }
+    .menu-btn { display: grid; place-items: center; position: fixed; z-index: 55; top: 12px; left: 12px; width: 40px; height: 40px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); cursor: pointer; box-shadow: var(--shadow); font-size: 18px; }
+    .doc { padding: 64px 22px 200px; }
+    #popover { width: auto; left: 12px !important; right: 12px; top: auto !important; bottom: 12px; }
+  }
 </style>
 </head>
 <body>
 
-  <aside class="sidebar">
+  <button class="menu-btn" id="menuBtn" aria-label="Toggle menu">☰</button>
+
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <h1>📝 Annotated Reader</h1>
-      <p>Select any text and a comment box opens. Click a highlight to read its comment.</p>
+      <div class="logo">✎</div>
+      <div>
+        <h1>Annotated Reader</h1>
+        <p>Select any text to comment.</p>
+      </div>
+      <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">◐</button>
     </div>
-    <div class="toc" id="toc"></div>
+
+    <div class="tabs">
+      <button class="tab active" id="tabChapters" data-tab="chapters">Chapters</button>
+      <button class="tab" id="tabComments" data-tab="comments">Comments <span class="count" id="commentCount">0</span></button>
+    </div>
+
+    <div class="panel-scroll" id="tocPanel"></div>
+    <div class="panel-scroll hide" id="commentsPanel"></div>
+
     <div class="toolbar">
-      <button class="btn primary" id="loadBtn">Load .md file</button>
+      <div class="author-row">
+        <label for="authorInput">You:</label>
+        <input id="authorInput" type="text" placeholder="Your name (optional)" maxlength="40" />
+      </div>
+      <button class="btn primary" id="loadBtn">Open .md file</button>
+      <div class="group-label">Share &amp; save</div>
+      <button class="btn" id="exportHtmlBtn">Export as webpage ↗</button>
       <div class="btn-row">
-        <button class="btn" id="exportBtn">Export comments</button>
-        <button class="btn" id="importBtn">Import</button>
+        <button class="btn" id="saveProjectBtn">Save project</button>
+        <button class="btn" id="openProjectBtn">Open project</button>
       </div>
       <button class="btn" id="sampleBtn">Try sample</button>
     </div>
@@ -190,134 +278,125 @@
     <div id="empty">
       <div style="font-size:54px">🗂️</div>
       <h2>No document loaded</h2>
-      <p>Load a Markdown file with chapters (use <code>#</code> and <code>##</code> headings). It’ll appear here, split by chapter in the sidebar.</p>
-      <div class="drop">Drag &amp; drop a <b>.md</b> file here,<br/> or click <b>Load .md file</b>.</div>
+      <p>Open a Markdown file with chapters (use <code>#</code> and <code>##</code> headings). It’ll appear here, split by chapter.</p>
+      <div class="drop">Drag &amp; drop a <b>.md</b> file anywhere here,<br/> or click <b>Open .md file</b>.</div>
     </div>
 
+    <div id="coach"></div>
     <div id="popover"></div>
   </main>
 
   <input type="file" id="fileInput" accept=".md,.markdown,.txt" />
-  <input type="file" id="importInput" accept=".json" />
+  <input type="file" id="projectInput" accept=".json" />
 
 <script>
 /* =========================================================================
-   Annotated Reader — single-file MD annotation tool
-   - Parses markdown, builds chapter TOC from headings
-   - Select text -> add comment (stored by character offset within chapter)
-   - Highlights persist in localStorage, keyed by document
+   Annotated Reader — markdown chapters + anchored comments
    ========================================================================= */
 
 const docEl   = document.getElementById('doc');
-const tocEl   = document.getElementById('toc');
+const tocPanel = document.getElementById('tocPanel');
+const commentsPanel = document.getElementById('commentsPanel');
 const mainEl  = document.getElementById('main');
 const emptyEl = document.getElementById('empty');
 const popover = document.getElementById('popover');
+const coach   = document.getElementById('coach');
+const authorInput = document.getElementById('authorInput');
 
 let state = {
-  key: null,          // localStorage key for current doc
-  title: 'Untitled',
-  chapters: [],       // [{id, level, title, el}]
-  annotations: [],    // [{id, chapterId, start, end, text, comment}]
-  pending: null       // selection awaiting a comment
+  key: null, title: 'Untitled', md: '',
+  chapters: [], annotations: [], pending: null
 };
 
-/* ---------- Markdown rendering + chaptering ---------- */
-function renderMarkdown(md) {
-  marked.setOptions({ gfm: true, breaks: false });
-  docEl.innerHTML = marked.parse(md);
-  emptyEl.classList.add('hide');
+authorInput.value = localStorage.getItem('annoreader:author') || '';
+authorInput.addEventListener('input', () => localStorage.setItem('annoreader:author', authorInput.value));
 
-  // First H1 is the doc title
+/* ---------- Safe markdown render ---------- */
+function mdToSafeHtml(md) {
+  if (typeof marked === 'undefined') return null;
+  let html = marked.parse(md, { gfm: true, breaks: false });
+  if (typeof DOMPurify !== 'undefined') html = DOMPurify.sanitize(html);
+  return html;
+}
+
+function renderMarkdown(md) {
+  const html = mdToSafeHtml(md);
+  if (html === null) {
+    emptyEl.classList.remove('hide');
+    emptyEl.innerHTML = '<div style="font-size:48px">⚠️</div><h2>Couldn’t load the renderer</h2>' +
+      '<p>The Markdown library failed to load (offline or blocked). Reconnect and reload the page.</p>';
+    return false;
+  }
+  docEl.innerHTML = html;
+  emptyEl.classList.add('hide');
   const h1 = docEl.querySelector('h1');
   state.title = h1 ? h1.textContent.trim() : 'Untitled document';
-
-  // Group content into chapter sections so we can offset-anchor inside each
   buildChapters();
   buildTOC();
+  return true;
 }
 
 function buildChapters() {
   state.chapters = [];
-  // We treat each H1/H2 as a chapter boundary; wrap following siblings
   const nodes = Array.from(docEl.childNodes);
   docEl.innerHTML = '';
-  let current = null;
-  let idx = 0;
-
+  let current = null, idx = 0;
   function newChapter(level, title) {
     idx++;
     const sec = document.createElement('section');
-    sec.className = 'chapter';
-    sec.dataset.chapterId = 'ch' + idx;
+    sec.className = 'chapter'; sec.dataset.chapterId = 'ch' + idx; sec.id = 'ch' + idx;
     docEl.appendChild(sec);
     const ch = { id: 'ch' + idx, level, title, el: sec };
-    state.chapters.push(ch);
-    current = sec;
-    return ch;
+    state.chapters.push(ch); current = sec; return ch;
   }
-  // a default chapter for any preamble before first heading
   newChapter(1, state.title);
-
   nodes.forEach(node => {
     if (node.nodeType === 1 && (node.tagName === 'H1' || node.tagName === 'H2')) {
-      const ch = newChapter(node.tagName === 'H1' ? 1 : 2, node.textContent.trim());
+      newChapter(node.tagName === 'H1' ? 1 : 2, node.textContent.trim());
       current.appendChild(node);
-      ch.el.id = ch.id;
-    } else {
-      current.appendChild(node);
-    }
+    } else current.appendChild(node);
   });
-
-  // drop the empty default preamble chapter if it has no real content
-  if (state.chapters.length > 1) {
-    const first = state.chapters[0];
-    if (first.el.textContent.trim() === '') {
-      first.el.remove();
-      state.chapters.shift();
-    }
+  if (state.chapters.length > 1 && state.chapters[0].el.textContent.trim() === '') {
+    state.chapters[0].el.remove(); state.chapters.shift();
   }
 }
 
 function buildTOC() {
-  tocEl.innerHTML = '';
+  tocPanel.innerHTML = '';
   state.chapters.forEach(ch => {
-    const item = document.createElement('div');
-    item.className = 'toc-item' + (ch.level === 2 ? ' lvl3' : '');
+    const item = document.createElement('button');
+    item.className = 'toc-item' + (ch.level === 2 ? ' lvl2' : '');
     const label = document.createElement('span');
     label.textContent = ch.title || '(untitled)';
-    item.appendChild(label);
     const badge = document.createElement('span');
-    badge.className = 'toc-badge';
-    badge.dataset.badgeFor = ch.id;
-    badge.style.display = 'none';
-    item.appendChild(badge);
-    item.onclick = () => ch.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    tocEl.appendChild(item);
+    badge.className = 'toc-badge'; badge.dataset.badgeFor = ch.id; badge.style.display = 'none';
+    item.append(label, badge);
+    item.onclick = () => { ch.el.scrollIntoView({ behavior: 'smooth', block: 'start' }); closeSidebarMobile(); };
+    tocPanel.appendChild(item);
   });
   refreshBadges();
 }
 
 function refreshBadges() {
   state.chapters.forEach(ch => {
-    const n = state.annotations.filter(a => a.chapterId === ch.id).length;
-    const badge = tocEl.querySelector(`[data-badge-for="${ch.id}"]`);
+    const n = state.annotations.filter(a => a.chapterId === ch.id && !a.orphan).length;
+    const badge = tocPanel.querySelector(`[data-badge-for="${ch.id}"]`);
     if (badge) { badge.textContent = n; badge.style.display = n ? 'inline-flex' : 'none'; }
   });
+  document.getElementById('commentCount').textContent = state.annotations.length;
 }
 
-/* ---------- Offset helpers (anchor by plain-text char offset in chapter) ---------- */
+/* ---------- Offset + anchoring helpers ---------- */
 function getOffsetWithin(container, node, offset) {
-  let total = 0, done = false;
+  let total = 0;
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   let n;
   while ((n = walker.nextNode())) {
-    if (n === node) { total += offset; done = true; break; }
+    if (n === node) return total + offset;
     total += n.nodeValue.length;
   }
-  return done ? total : null;
+  return null;
 }
-
 function chapterOfNode(node) {
   let el = node.nodeType === 1 ? node : node.parentElement;
   while (el && el !== docEl) {
@@ -327,111 +406,142 @@ function chapterOfNode(node) {
   return null;
 }
 
-/* Wrap [start,end) plain-text range inside a chapter element with a <mark> */
+/* Re-locate an annotation by quote text (survives small doc edits). */
+function locate(chapterEl, anno) {
+  const txt = chapterEl.textContent;
+  if (anno.text && txt.slice(anno.start, anno.end) === anno.text) return { start: anno.start, end: anno.end };
+  if (anno.text) {
+    let from = txt.indexOf(anno.text), best = -1, bestDist = Infinity;
+    while (from !== -1) {
+      const d = Math.abs(from - anno.start);
+      if (d < bestDist) { bestDist = d; best = from; }
+      from = txt.indexOf(anno.text, from + 1);
+    }
+    if (best !== -1) return { start: best, end: best + anno.text.length };
+  }
+  return null;
+}
+
 function wrapRange(chapterEl, start, end, annoId) {
   const walker = document.createTreeWalker(chapterEl, NodeFilter.SHOW_TEXT);
-  let pos = 0, n;
-  const ranges = [];
+  let pos = 0, n; const ranges = [];
   while ((n = walker.nextNode())) {
-    const len = n.nodeValue.length;
-    const nodeStart = pos, nodeEnd = pos + len;
+    const nodeStart = pos, nodeEnd = pos + n.nodeValue.length;
     if (nodeEnd > start && nodeStart < end) {
-      const s = Math.max(start, nodeStart) - nodeStart;
-      const e = Math.min(end, nodeEnd) - nodeStart;
-      ranges.push({ node: n, s, e });
+      ranges.push({ node: n, s: Math.max(start, nodeStart) - nodeStart, e: Math.min(end, nodeEnd) - nodeStart });
     }
     pos = nodeEnd;
     if (pos >= end) break;
   }
-  // wrap from last to first so offsets stay valid
   ranges.reverse().forEach(r => {
-    const range = document.createRange();
-    range.setStart(r.node, r.s);
-    range.setEnd(r.node, r.e);
-    const mark = document.createElement('mark');
-    mark.className = 'anno';
-    mark.dataset.annoId = annoId;
-    try { range.surroundContents(mark); }
-    catch (err) { /* skip ranges that cross element boundaries unevenly */ }
+    try {
+      const range = document.createRange();
+      range.setStart(r.node, r.s); range.setEnd(r.node, r.e);
+      const mark = document.createElement('mark');
+      mark.className = 'anno'; mark.dataset.annoId = annoId;
+      mark.setAttribute('tabindex', '0'); mark.setAttribute('role', 'button');
+      range.surroundContents(mark);
+    } catch (err) {}
   });
 }
 
 function applyAllHighlights() {
-  // clear existing marks first (unwrap)
   docEl.querySelectorAll('mark.anno').forEach(m => {
     const parent = m.parentNode;
     while (m.firstChild) parent.insertBefore(m.firstChild, m);
-    parent.removeChild(m);
-    parent.normalize();
+    parent.removeChild(m); parent.normalize();
   });
-  // re-apply
   state.annotations.forEach(a => {
     const ch = state.chapters.find(c => c.id === a.chapterId);
-    if (ch) wrapRange(ch.el, a.start, a.end, a.id);
+    if (!ch) { a.orphan = true; return; }
+    const loc = locate(ch.el, a);
+    if (!loc) { a.orphan = true; return; }
+    a.orphan = false; a.start = loc.start; a.end = loc.end;
+    wrapRange(ch.el, loc.start, loc.end, a.id);
   });
   refreshBadges();
+  buildCommentsList();
 }
 
-/* ---------- Selection -> open comment editor directly ---------- */
+/* ---------- Comments list ---------- */
+function buildCommentsList() {
+  commentsPanel.innerHTML = '';
+  if (!state.annotations.length) {
+    commentsPanel.innerHTML = '<div class="clist-empty">No comments yet.<br/>Select any text in the document to add one.</div>';
+    return;
+  }
+  const order = new Map(state.chapters.map((c, i) => [c.id, i]));
+  const sorted = [...state.annotations].sort((a, b) =>
+    (order.get(a.chapterId) - order.get(b.chapterId)) || (a.start - b.start));
+  sorted.forEach(a => {
+    const ch = state.chapters.find(c => c.id === a.chapterId);
+    const item = document.createElement('div');
+    item.className = 'citem' + (a.orphan ? ' orphan' : '');
+    item.innerHTML =
+      `<div class="cquote">“${escapeHtml(a.text)}”</div>` +
+      `<div class="ctext">${escapeHtml(a.comment)}</div>` +
+      `<div class="cmeta">${a.author ? escapeHtml(a.author) + ' · ' : ''}${ch ? escapeHtml(ch.title) : ''}` +
+      `${a.orphan ? ' · <span class="orphan-tag">text not found</span>' : ''}</div>`;
+    item.onclick = () => {
+      const mark = docEl.querySelector(`mark.anno[data-anno-id="${a.id}"]`);
+      if (mark) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setActiveMark(a.id);
+        setTimeout(() => openViewer(a, mark), 350);
+      } else { openViewer(a, null); }
+      closeSidebarMobile();
+    };
+    commentsPanel.appendChild(item);
+  });
+}
+
+/* ---------- Selection -> editor ---------- */
 document.addEventListener('mouseup', (e) => {
-  if (popover.contains(e.target)) return;          // ignore selecting inside the panel
-  if (e.target.closest && e.target.closest('mark.anno')) return; // marks open the viewer
+  if (popover.contains(e.target)) return;
+  if (e.target.closest && e.target.closest('mark.anno')) return;
   setTimeout(maybeStartComment, 10);
 });
 
 function maybeStartComment() {
-  // if the editor is already open, don't hijack
   if (popover.style.display === 'block') return;
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-  const text = sel.toString();
-  if (text.trim().length < 2) return;              // ignore tiny/stray selections
+  if (sel.toString().trim().length < 2) return;
 
-  const range = sel.getRangeAt(0);
+  let range = sel.getRangeAt(0);
   if (!docEl.contains(range.commonAncestorContainer)) return;
-  const ch = chapterOfNode(range.startContainer);
-  if (!ch) return;
-  const start = getOffsetWithin(ch, range.startContainer, range.startOffset);
-  const end   = getOffsetWithin(ch, range.endContainer, range.endOffset);
+  const chStart = chapterOfNode(range.startContainer);
+  const chEnd = chapterOfNode(range.endContainer);
+  if (!chStart) return;
+  if (chEnd && chEnd !== chStart) return; // ignore cross-chapter selections
+  const start = getOffsetWithin(chStart, range.startContainer, range.startOffset);
+  const end   = getOffsetWithin(chStart, range.endContainer, range.endOffset);
   if (start == null || end == null || end <= start) return;
 
-  // capture the selection's screen position BEFORE clearing it, so we can anchor the panel
+  const text = chStart.textContent.slice(start, end);
   const rect = range.getBoundingClientRect();
-
+  dismissCoach();
   state.pending = {
     id: 'a' + Date.now() + Math.floor(Math.random()*1000),
-    chapterId: ch.dataset.chapterId,
-    start, end,
-    text: text,
-    comment: ''
+    chapterId: chStart.dataset.chapterId, start, end, text,
+    comment: '', author: authorInput.value.trim()
   };
   sel.removeAllRanges();
   openEditor(state.pending, rect);
 }
 
-/* ---------- Panel (editor + viewer) — anchored beside the text, clamped on screen ---------- */
+/* ---------- Panel placement ---------- */
 function placePopover(rect) {
   const W = 320, gap = 18, margin = 12;
   popover.style.display = 'block';
-
-  // Fallback if no anchor rect provided: bottom-right corner
-  if (!rect) {
-    popover.style.left = (window.innerWidth - W - 28) + 'px';
-    popover.style.top  = (window.innerHeight - 220) + 'px';
-    return;
-  }
-
-  // Horizontal: prefer to the RIGHT of the selection; else to the LEFT; else clamp
+  if (!rect) return;
   let left = rect.right + gap;
   if (left + W > window.innerWidth - margin) left = rect.left - W - gap;
   if (left < margin) left = Math.max(margin, window.innerWidth - W - margin);
   popover.style.left = left + 'px';
-
-  // Vertical: align with the selection top, then clamp once height is known
   popover.style.top = rect.top + 'px';
   requestAnimationFrame(() => {
-    const h = popover.offsetHeight;
-    let t = rect.top;
+    const h = popover.offsetHeight; let t = rect.top;
     if (t + h > window.innerHeight - margin) t = window.innerHeight - h - margin;
     if (t < margin) t = margin;
     popover.style.top = t + 'px';
@@ -439,122 +549,128 @@ function placePopover(rect) {
 }
 
 function openEditor(anno, rect) {
-  popover.innerHTML = `
-    <div class="pop-head">New comment <span class="icon-x" data-act="cancel">✕</span></div>
-    <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
-    <textarea placeholder="Write your comment…"></textarea>
-    <div class="pop-actions">
-      <button class="btn" data-act="cancel">Cancel</button>
-      <button class="btn primary" data-act="save">Save comment</button>
-    </div>`;
+  popover.innerHTML =
+    `<div class="pop-head">New comment <button class="icon-x" data-act="cancel" aria-label="Cancel">✕</button></div>
+     <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
+     <textarea placeholder="Write your comment…"></textarea>
+     <div class="pop-actions">
+       <button class="btn" data-act="cancel">Cancel</button>
+       <button class="btn primary" data-act="save">Save comment</button>
+     </div>`;
   placePopover(rect);
-  const ta = popover.querySelector('textarea');
-  ta.focus();
+  const ta = popover.querySelector('textarea'); ta.focus();
   popover.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
     if (b.dataset.act === 'save') {
-      const val = ta.value.trim();
-      if (!val) { ta.focus(); return; }
-      anno.comment = val;
+      const val = ta.value.trim(); if (!val) { ta.focus(); return; }
+      anno.comment = val; anno.author = authorInput.value.trim();
       state.annotations.push(anno);
-      applyAllHighlights();
-      persist();
-      closePopover();
-    } else { closePopover(); }
+      applyAllHighlights(); persist(); closePopover();
+      flashMark(anno.id);
+    } else closePopover();
   });
-  // Cmd/Ctrl+Enter to save
   ta.addEventListener('keydown', e => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') popover.querySelector('[data-act="save"]').click();
+    if (e.key === 'Escape') closePopover();
   });
 }
 
 function openViewer(anno, markEl) {
-  popover.innerHTML = `
-    <div class="pop-head">Comment <span class="icon-x" data-act="close">✕</span></div>
-    <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
-    <div class="pop-body">${escapeHtml(anno.comment)}</div>
-    <div class="pop-actions">
-      <button class="btn" data-act="edit">Edit</button>
-      <button class="btn" data-act="delete">Delete</button>
-    </div>`;
-  placePopover(markEl.getBoundingClientRect());
+  setActiveMark(anno.id);
+  popover.innerHTML =
+    `<div class="pop-head">Comment <button class="icon-x" data-act="close" aria-label="Close">✕</button></div>
+     <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
+     <div class="pop-body">${escapeHtml(anno.comment)}</div>
+     ${anno.author ? `<div class="pop-author">— ${escapeHtml(anno.author)}</div>` : '<div style="height:8px"></div>'}
+     <div class="pop-actions">
+       <button class="btn" data-act="edit">Edit</button>
+       <button class="btn" data-act="delete">Delete</button>
+     </div>`;
+  placePopover(markEl ? markEl.getBoundingClientRect() : null);
   popover.querySelector('[data-act="close"]').onclick = closePopover;
-  popover.querySelector('[data-act="edit"]').onclick = () => openEditor2(anno, markEl);
+  popover.querySelector('[data-act="edit"]').onclick = () => openEditor2(anno);
   popover.querySelector('[data-act="delete"]').onclick = () => {
     state.annotations = state.annotations.filter(a => a.id !== anno.id);
     applyAllHighlights(); persist(); closePopover();
   };
 }
 
-function openEditor2(anno, markEl) {
-  popover.innerHTML = `
-    <div class="pop-head">Edit comment <span class="icon-x" data-act="cancel">✕</span></div>
-    <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
-    <textarea>${escapeHtml(anno.comment)}</textarea>
-    <div class="pop-actions">
-      <button class="btn" data-act="cancel">Cancel</button>
-      <button class="btn primary" data-act="save">Save</button>
-    </div>`;
-  placePopover(markEl.getBoundingClientRect());
+function openEditor2(anno) {
+  const mark = docEl.querySelector(`mark.anno[data-anno-id="${anno.id}"]`);
+  popover.innerHTML =
+    `<div class="pop-head">Edit comment <button class="icon-x" data-act="cancel" aria-label="Cancel">✕</button></div>
+     <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
+     <textarea>${escapeHtml(anno.comment)}</textarea>
+     <div class="pop-actions">
+       <button class="btn" data-act="cancel">Cancel</button>
+       <button class="btn primary" data-act="save">Save</button>
+     </div>`;
+  placePopover(mark ? mark.getBoundingClientRect() : null);
   const ta = popover.querySelector('textarea'); ta.focus();
   popover.querySelector('[data-act="save"]').onclick = () => {
     const v = ta.value.trim(); if (!v) { ta.focus(); return; }
-    anno.comment = v; persist(); openViewer(anno, markEl);
+    anno.comment = v; persist(); buildCommentsList(); openViewer(anno, mark);
   };
-  popover.querySelector('[data-act="cancel"]').onclick = () => openViewer(anno, markEl);
+  popover.querySelector('[data-act="cancel"]').onclick = () => openViewer(anno, mark);
 }
 
 function closePopover() {
-  popover.style.display = 'none';
-  popover.innerHTML = '';
+  popover.style.display = 'none'; popover.innerHTML = '';
   docEl.querySelectorAll('mark.anno.active').forEach(m => m.classList.remove('active'));
 }
+function setActiveMark(id) {
+  docEl.querySelectorAll('mark.anno.active').forEach(m => m.classList.remove('active'));
+  docEl.querySelectorAll(`mark.anno[data-anno-id="${id}"]`).forEach(m => m.classList.add('active'));
+}
+function flashMark(id) {
+  const m = docEl.querySelector(`mark.anno[data-anno-id="${id}"]`);
+  if (!m) return; m.classList.add('active');
+  setTimeout(() => m.classList.remove('active'), 700);
+}
 
-/* click a highlight to view its comment */
+/* click / keyboard a highlight to view */
 docEl.addEventListener('click', (e) => {
-  const mark = e.target.closest('mark.anno');
-  if (!mark) return;
+  const mark = e.target.closest('mark.anno'); if (!mark) return;
   e.stopPropagation();
   const anno = state.annotations.find(a => a.id === mark.dataset.annoId);
-  if (!anno) return;
-  docEl.querySelectorAll('mark.anno.active').forEach(m => m.classList.remove('active'));
-  document.querySelectorAll(`mark.anno[data-anno-id="${anno.id}"]`).forEach(m => m.classList.add('active'));
-  openViewer(anno, mark);
+  if (anno) openViewer(anno, mark);
 });
-
-/* click elsewhere closes popover (but not when a fresh text selection is being made) */
+docEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const mark = e.target.closest && e.target.closest('mark.anno'); if (!mark) return;
+  e.preventDefault();
+  const anno = state.annotations.find(a => a.id === mark.dataset.annoId);
+  if (anno) openViewer(anno, mark);
+});
 document.addEventListener('mousedown', (e) => {
   if (popover.style.display === 'block' && !popover.contains(e.target) && !e.target.closest('mark.anno')) {
-    // only auto-close the read-only viewer; keep an in-progress editor open
     if (!popover.querySelector('textarea')) closePopover();
   }
 });
 
-/* ---------- Persistence ---------- */
-function docKey(title, md) {
-  // stable-ish key from title + length
-  return 'annoreader:' + title + ':' + md.length;
+/* ---------- Persistence (content-hash key) ---------- */
+function hashStr(s) {
+  let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
+function docKey(md) { return 'annoreader:doc:' + hashStr(md); }
 function persist() {
   if (!state.key) return;
-  localStorage.setItem(state.key, JSON.stringify({
-    title: state.title, annotations: state.annotations
-  }));
+  localStorage.setItem(state.key, JSON.stringify({ title: state.title, annotations: state.annotations }));
   refreshBadges();
 }
 function loadPersisted(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    return JSON.parse(raw).annotations || [];
-  } catch { return []; }
+  try { const raw = localStorage.getItem(key); return raw ? (JSON.parse(raw).annotations || []) : []; }
+  catch { return []; }
 }
 
 /* ---------- Load flow ---------- */
-function loadDocument(md, fname) {
-  renderMarkdown(md);
-  state.key = docKey(state.title || fname || 'doc', md);
-  state.annotations = loadPersisted(state.key);
+function loadDocument(md, annotations) {
+  state.md = md;
+  if (!renderMarkdown(md)) return;
+  state.key = docKey(md);
+  state.annotations = annotations || loadPersisted(state.key);
   applyAllHighlights();
+  maybeShowCoach();
 }
 
 /* ---------- File input / drag-drop ---------- */
@@ -562,48 +678,115 @@ const fileInput = document.getElementById('fileInput');
 document.getElementById('loadBtn').onclick = () => fileInput.click();
 fileInput.onchange = e => {
   const f = e.target.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = () => loadDocument(r.result, f.name);
-  r.readAsText(f);
+  const r = new FileReader(); r.onload = () => loadDocument(r.result); r.readAsText(f);
+  fileInput.value = '';
 };
-['dragover','drop'].forEach(ev => mainEl.addEventListener(ev, e => e.preventDefault()));
+['dragenter','dragover'].forEach(ev => mainEl.addEventListener(ev, e => { e.preventDefault(); mainEl.classList.add('dragging'); }));
+['dragleave','drop'].forEach(ev => mainEl.addEventListener(ev, e => { e.preventDefault(); if (ev==='drop' || e.target===mainEl) mainEl.classList.remove('dragging'); }));
 mainEl.addEventListener('drop', e => {
   const f = e.dataTransfer.files[0];
-  if (f && /\.(md|markdown|txt)$/i.test(f.name)) {
-    const r = new FileReader(); r.onload = () => loadDocument(r.result, f.name); r.readAsText(f);
-  }
+  if (f && /\.(md|markdown|txt)$/i.test(f.name)) { const r = new FileReader(); r.onload = () => loadDocument(r.result); r.readAsText(f); }
 });
 
-/* ---------- Export / Import comments ---------- */
-document.getElementById('exportBtn').onclick = () => {
-  const data = JSON.stringify({ title: state.title, annotations: state.annotations }, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = (state.title || 'comments').replace(/\W+/g,'_') + '.comments.json';
-  a.click();
+/* ---------- Save / Open project (doc + comments together) ---------- */
+document.getElementById('saveProjectBtn').onclick = () => {
+  downloadFile(
+    JSON.stringify({ format: 'annotated-reader-project', version: 1, title: state.title, markdown: state.md, annotations: state.annotations }, null, 2),
+    (state.title || 'project').replace(/\W+/g,'_') + '.annoproj.json', 'application/json');
 };
-const importInput = document.getElementById('importInput');
-document.getElementById('importBtn').onclick = () => importInput.click();
-importInput.onchange = e => {
+const projectInput = document.getElementById('projectInput');
+document.getElementById('openProjectBtn').onclick = () => projectInput.click();
+projectInput.onchange = e => {
   const f = e.target.files[0]; if (!f) return;
   const r = new FileReader();
   r.onload = () => {
     try {
       const obj = JSON.parse(r.result);
-      if (Array.isArray(obj.annotations)) {
-        state.annotations = obj.annotations;
-        applyAllHighlights(); persist();
-      }
-    } catch { alert('Could not read that comments file.'); }
+      if (typeof obj.markdown === 'string') loadDocument(obj.markdown, Array.isArray(obj.annotations) ? obj.annotations : []);
+      else if (Array.isArray(obj.annotations)) { // comments-only legacy import
+        if (confirm('This file has comments but no document. Apply them to the current document?')) {
+          state.annotations = obj.annotations; applyAllHighlights(); persist();
+        }
+      } else alert('Unrecognized project file.');
+    } catch { alert('Could not read that project file.'); }
   };
-  r.readAsText(f);
+  r.readAsText(f); projectInput.value = '';
 };
 
-/* ---------- Utils ---------- */
-function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+/* ---------- Export self-contained annotated webpage ---------- */
+document.getElementById('exportHtmlBtn').onclick = () => {
+  const docHtml = docEl.outerHTML; // includes applied <mark>s
+  const annos = JSON.stringify(state.annotations);
+  const css = document.querySelector('style').textContent;
+  const html =
+`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>${escapeHtml(state.title)} — annotated</title>
+<style>${css}
+.sidebar,.menu-btn,.toolbar,.tabs{display:none!important}.main{width:100%}</style></head>
+<body>
+<aside class="sidebar"><div class="brand"><div class="logo">✎</div><div><h1>${escapeHtml(state.title)}</h1><p>Annotated · read-only</p></div></div><div class="panel-scroll" id="commentsPanel"></div></aside>
+<main class="main" id="main">${docHtml}<div id="popover"></div></main>
+<script>
+const ANNOS=${annos};
+const docEl=document.getElementById('doc'),popover=document.getElementById('popover');
+function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function place(r){const W=320,g=18,m=12;popover.style.display='block';if(!r)return;let l=r.right+g;if(l+W>innerWidth-m)l=r.left-W-g;if(l<m)l=Math.max(m,innerWidth-W-m);popover.style.left=l+'px';popover.style.top=r.top+'px';requestAnimationFrame(()=>{const h=popover.offsetHeight;let t=r.top;if(t+h>innerHeight-m)t=innerHeight-h-m;if(t<m)t=m;popover.style.top=t+'px'})}
+function view(a,el){document.querySelectorAll('mark.anno.active').forEach(m=>m.classList.remove('active'));document.querySelectorAll('mark.anno[data-anno-id="'+a.id+'"]').forEach(m=>m.classList.add('active'));popover.innerHTML='<div class="pop-head">Comment <button class="icon-x" id="cx">✕</button></div><div class="pop-quote">“'+esc(a.text)+'”</div><div class="pop-body">'+esc(a.comment)+'</div>'+(a.author?'<div class="pop-author">— '+esc(a.author)+'</div>':'<div style="height:10px"></div>');place(el?el.getBoundingClientRect():null);document.getElementById('cx').onclick=close_}
+function close_(){popover.style.display='none';document.querySelectorAll('mark.anno.active').forEach(m=>m.classList.remove('active'))}
+docEl.addEventListener('click',e=>{const m=e.target.closest('mark.anno');if(!m)return;const a=ANNOS.find(x=>x.id===m.dataset.annoId);if(a)view(a,m)});
+document.addEventListener('mousedown',e=>{if(popover.style.display==='block'&&!popover.contains(e.target)&&!e.target.closest('mark.anno'))close_()});
+<\/script>
+</body></html>`;
+  downloadFile(html, (state.title || 'annotated').replace(/\W+/g,'_') + '.annotated.html', 'text/html');
+};
 
-/* ---------- Sample doc ---------- */
+function downloadFile(content, name, type) {
+  const blob = new Blob([content], { type }); const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ---------- Tabs / sidebar / theme ---------- */
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  const comments = t.dataset.tab === 'comments';
+  commentsPanel.classList.toggle('hide', !comments);
+  tocPanel.classList.toggle('hide', comments);
+});
+const menuBtn = document.getElementById('menuBtn'), sidebar = document.getElementById('sidebar');
+menuBtn.onclick = () => sidebar.classList.toggle('open');
+function closeSidebarMobile(){ if (window.innerWidth <= 820) sidebar.classList.remove('open'); }
+
+const themeToggle = document.getElementById('themeToggle');
+const savedTheme = localStorage.getItem('annoreader:theme');
+if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+themeToggle.onclick = () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const next = cur ? (cur === 'dark' ? 'light' : 'dark') : (dark ? 'light' : 'dark');
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('annoreader:theme', next);
+};
+
+/* ---------- Coachmark ---------- */
+function maybeShowCoach() {
+  if (localStorage.getItem('annoreader:coached')) return;
+  const p = docEl.querySelector('p'); if (!p) return;
+  const r = p.getBoundingClientRect(), mr = mainEl.getBoundingClientRect();
+  coach.innerHTML = '👆 Select any text to add a comment <span class="x" id="coachX">✕</span>';
+  coach.style.display = 'block';
+  coach.style.left = (r.left - mr.left + mainEl.scrollLeft) + 'px';
+  coach.style.top = (r.top - mr.top + mainEl.scrollTop - 50) + 'px';
+  document.getElementById('coachX').onclick = (e) => { e.stopPropagation(); dismissCoach(); };
+}
+function dismissCoach() { coach.style.display = 'none'; localStorage.setItem('annoreader:coached', '1'); }
+
+/* ---------- Utils ---------- */
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------- Sample ---------- */
 const SAMPLE = `# The Product Vision
 
 This document outlines where we are headed and why it matters. Read it once, then leave your thoughts in the margins.
@@ -624,10 +807,8 @@ We highlight the relevant passage and anchor a comment to it. Clicking the highl
 
 Next we will add multi-user comments, threaded replies, and a way to resolve discussions. For now, try selecting any sentence above and writing a comment.`;
 
-document.getElementById('sampleBtn').onclick = () => loadDocument(SAMPLE, 'sample.md');
-
-// auto-load sample on first open so the page isn't empty
-loadDocument(SAMPLE, 'sample.md');
+document.getElementById('sampleBtn').onclick = () => loadDocument(SAMPLE);
+loadDocument(SAMPLE);
 </script>
 </body>
 </html>
