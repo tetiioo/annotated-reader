@@ -609,9 +609,13 @@ function openEditor2(anno) {
   const ta = popover.querySelector('textarea'); ta.focus();
   popover.querySelector('[data-act="save"]').onclick = () => {
     const v = ta.value.trim(); if (!v) { ta.focus(); return; }
-    anno.comment = v; persist(); buildCommentsList(); openViewer(anno, mark);
+    anno.comment = v; persist(); buildCommentsList(); closePopover();
   };
   popover.querySelector('[data-act="cancel"]').onclick = () => openViewer(anno, mark);
+  ta.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') popover.querySelector('[data-act="save"]').click();
+    if (e.key === 'Escape') openViewer(anno, mark);
+  });
 }
 
 function closePopover() {
