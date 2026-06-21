@@ -272,14 +272,19 @@
         <input id="authorInput" type="text" placeholder="Your name (optional)" maxlength="40" />
       </div>
       <button class="btn primary" id="loadBtn">Open .md file</button>
-      <div class="group-label">Share &amp; save</div>
-      <button class="btn primary" id="shareBtn">🔗 Copy share link</button>
-      <button class="btn" id="exportHtmlBtn">Export as webpage ↗</button>
+
+      <div class="group-label">🔒 Send privately · nothing leaves your device</div>
+      <button class="btn primary" id="exportMdBtn">⬇︎ Download .md with comments</button>
       <div class="btn-row">
         <button class="btn" id="saveProjectBtn">Save project</button>
         <button class="btn" id="openProjectBtn">Open project</button>
       </div>
-      <button class="btn" id="sampleBtn">Try sample</button>
+      <button class="btn" id="exportHtmlBtn">Export as webpage ↗</button>
+
+      <div class="group-label">🌐 Share via link · embeds the doc in the URL</div>
+      <button class="btn" id="shareBtn">🔗 Copy share link</button>
+
+      <button class="btn" id="sampleBtn" style="margin-top:4px">Try sample</button>
     </div>
   </aside>
 
@@ -689,20 +694,52 @@ function loadDocument(md, annotations) {
   maybeShowCoach();
 }
 
+/* ---------- Embedded comments inside the .md (private round-trip) ---------- */
+// Comments are stored in a trailing HTML comment so they're invisible in any
+// other markdown viewer, and the whole thing stays a normal .md file.
+function splitMd(raw) {
+  const re = /\n*<!--\s*annoreader:annotations\s*([\s\S]*?)-->\s*$/;
+  const m = raw.match(re);
+  if (m) {
+    let annos = null;
+    try { const p = JSON.parse(m[1].trim()); if (Array.isArray(p)) annos = p; } catch (e) {}
+    return { md: raw.slice(0, m.index).replace(/\s+$/, ''), annotations: annos };
+  }
+  return { md: raw, annotations: null };
+}
+function openMarkdown(raw) {
+  const { md, annotations } = splitMd(raw);
+  loadDocument(md, annotations === null ? undefined : annotations);
+  if (annotations && annotations.length)
+    setTimeout(() => toast(`Loaded ${annotations.length} comment${annotations.length===1?'':'s'} embedded in this file.`), 300);
+}
+
 /* ---------- File input / drag-drop ---------- */
 const fileInput = document.getElementById('fileInput');
 document.getElementById('loadBtn').onclick = () => fileInput.click();
 fileInput.onchange = e => {
   const f = e.target.files[0]; if (!f) return;
-  const r = new FileReader(); r.onload = () => loadDocument(r.result); r.readAsText(f);
+  const r = new FileReader(); r.onload = () => openMarkdown(r.result); r.readAsText(f);
   fileInput.value = '';
 };
 ['dragenter','dragover'].forEach(ev => mainEl.addEventListener(ev, e => { e.preventDefault(); mainEl.classList.add('dragging'); }));
 ['dragleave','drop'].forEach(ev => mainEl.addEventListener(ev, e => { e.preventDefault(); if (ev==='drop' || e.target===mainEl) mainEl.classList.remove('dragging'); }));
 mainEl.addEventListener('drop', e => {
   const f = e.dataTransfer.files[0];
-  if (f && /\.(md|markdown|txt)$/i.test(f.name)) { const r = new FileReader(); r.onload = () => loadDocument(r.result); r.readAsText(f); }
+  if (f && /\.(md|markdown|txt)$/i.test(f.name)) { const r = new FileReader(); r.onload = () => openMarkdown(r.result); r.readAsText(f); }
 });
+
+/* ---------- Download .md with comments embedded (private hand-back) ---------- */
+document.getElementById('exportMdBtn').onclick = () => {
+  if (!state.md) { toast('Open a document first.'); return; }
+  const body = state.md.replace(/\s+$/, '');
+  const out = state.annotations.length
+    ? body + '\n\n<!-- annoreader:annotations\n' + JSON.stringify(state.annotations) + '\n-->\n'
+    : body + '\n';
+  downloadFile(out, (state.title || 'document').replace(/\W+/g, '_') + '.md', 'text/markdown');
+  const n = state.annotations.length;
+  toast(`Downloaded .md with ${n} comment${n===1?'':'s'} embedded — send this file back. Nothing was uploaded.`);
+};
 
 /* ---------- Save / Open project (doc + comments together) ---------- */
 document.getElementById('saveProjectBtn').onclick = () => {
