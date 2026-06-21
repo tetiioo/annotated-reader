@@ -123,12 +123,15 @@
   }
   #addBtn:hover { background: #5a3fd6; }
 
-  /* ---- Comment popover ---- */
+  /* ---- Comment panel (fixed, always on screen) ---- */
   #popover {
-    position: absolute; z-index: 50; width: 300px; display: none;
+    position: fixed; z-index: 50; width: 330px; display: none;
+    right: 28px; bottom: 28px;
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 12px; box-shadow: var(--shadow); overflow: hidden;
+    border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.18); overflow: hidden;
+    animation: popIn .14s ease-out;
   }
+  @keyframes popIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
   #popover .pop-head {
     padding: 10px 14px; border-bottom: 1px solid var(--line);
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
@@ -168,7 +171,7 @@
   <aside class="sidebar">
     <div class="brand">
       <h1>📝 Annotated Reader</h1>
-      <p>Highlight text → leave a comment. Click a highlight to read it.</p>
+      <p>Select any text and a comment box opens. Click a highlight to read its comment.</p>
     </div>
     <div class="toc" id="toc"></div>
     <div class="toolbar">
@@ -191,8 +194,6 @@
       <div class="drop">Drag &amp; drop a <b>.md</b> file here,<br/> or click <b>Load .md file</b>.</div>
     </div>
 
-    <button id="addBtn">💬 Add comment</button>
-
     <div id="popover"></div>
   </main>
 
@@ -211,7 +212,6 @@ const docEl   = document.getElementById('doc');
 const tocEl   = document.getElementById('toc');
 const mainEl  = document.getElementById('main');
 const emptyEl = document.getElementById('empty');
-const addBtn  = document.getElementById('addBtn');
 const popover = document.getElementById('popover');
 
 let state = {
@@ -372,77 +372,46 @@ function applyAllHighlights() {
   refreshBadges();
 }
 
-/* ---------- Selection -> add comment ---------- */
-let savedRange = null;
-
+/* ---------- Selection -> open comment editor directly ---------- */
 document.addEventListener('mouseup', (e) => {
-  if (popover.contains(e.target) || e.target === addBtn) return;
-  setTimeout(handleSelection, 0);
+  if (popover.contains(e.target)) return;          // ignore selecting inside the panel
+  if (e.target.closest && e.target.closest('mark.anno')) return; // marks open the viewer
+  setTimeout(maybeStartComment, 10);
 });
 
-function handleSelection() {
+function maybeStartComment() {
+  // if the editor is already open, don't hijack
+  if (popover.style.display === 'block') return;
   const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) { addBtn.style.display = 'none'; return; }
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+  const text = sel.toString();
+  if (text.trim().length < 2) return;              // ignore tiny/stray selections
+
   const range = sel.getRangeAt(0);
-  const text = sel.toString().trim();
-  if (!text) { addBtn.style.display = 'none'; return; }
-
-  // must be within a chapter
+  if (!docEl.contains(range.commonAncestorContainer)) return;
   const ch = chapterOfNode(range.startContainer);
-  if (!ch || !docEl.contains(range.commonAncestorContainer)) { addBtn.style.display = 'none'; return; }
-  // don't allow starting a new comment on top of an existing mark click
-  savedRange = range.cloneRange();
-
-  const rect = range.getBoundingClientRect();
-  const mr = mainEl.getBoundingClientRect();
-  addBtn.style.left = (rect.left - mr.left + mainEl.scrollLeft + rect.width/2 - 60) + 'px';
-  addBtn.style.top  = (rect.top  - mr.top  + mainEl.scrollTop  - 42) + 'px';
-  addBtn.style.display = 'block';
-}
-
-addBtn.addEventListener('mousedown', (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  if (!savedRange) return;
-  const ch = chapterOfNode(savedRange.startContainer);
   if (!ch) return;
-  const start = getOffsetWithin(ch, savedRange.startContainer, savedRange.startOffset);
-  const end   = getOffsetWithin(ch, savedRange.endContainer, savedRange.endOffset);
-  if (start == null || end == null || end <= start) { addBtn.style.display='none'; return; }
+  const start = getOffsetWithin(ch, range.startContainer, range.startOffset);
+  const end   = getOffsetWithin(ch, range.endContainer, range.endOffset);
+  if (start == null || end == null || end <= start) return;
 
   state.pending = {
     id: 'a' + Date.now() + Math.floor(Math.random()*1000),
     chapterId: ch.dataset.chapterId,
     start, end,
-    text: savedRange.toString(),
+    text: text,
     comment: ''
   };
-  addBtn.style.display = 'none';
-  window.getSelection().removeAllRanges();
-  openEditor(state.pending, savedRange.getBoundingClientRect());
-});
-
-/* ---------- Popover (editor + viewer) ---------- */
-function placePopover(anchorRect) {
-  const mr = mainEl.getBoundingClientRect();
-  let left = anchorRect.left - mr.left + mainEl.scrollLeft;
-  let top  = anchorRect.bottom - mr.top + mainEl.scrollTop + 8;
-  popover.style.display = 'block';
-  // keep within viewport horizontally
-  const maxLeft = mainEl.clientWidth - 312;
-  left = Math.max(8, Math.min(left, maxLeft + mainEl.scrollLeft));
-  popover.style.left = left + 'px';
-  popover.style.top  = top + 'px';
-  // make sure the popover is actually visible in the scroll viewport
-  requestAnimationFrame(() => {
-    const pr = popover.getBoundingClientRect();
-    const mvr = mainEl.getBoundingClientRect();
-    if (pr.bottom > mvr.bottom) mainEl.scrollTop += (pr.bottom - mvr.bottom) + 16;
-    else if (pr.top < mvr.top) mainEl.scrollTop -= (mvr.top - pr.top) + 16;
-  });
+  sel.removeAllRanges();
+  openEditor(state.pending);
 }
 
-function openEditor(anno, anchorRect) {
+/* ---------- Panel (editor + viewer) — fixed bottom-right, always visible ---------- */
+function placePopover() {
+  popover.style.display = 'block';
+}
+
+function openEditor(anno) {
   popover.innerHTML = `
     <div class="pop-head">New comment <span class="icon-x" data-act="cancel">✕</span></div>
     <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
@@ -451,7 +420,7 @@ function openEditor(anno, anchorRect) {
       <button class="btn" data-act="cancel">Cancel</button>
       <button class="btn primary" data-act="save">Save comment</button>
     </div>`;
-  placePopover(anchorRect);
+  placePopover();
   const ta = popover.querySelector('textarea');
   ta.focus();
   popover.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
@@ -525,11 +494,11 @@ docEl.addEventListener('click', (e) => {
   openViewer(anno, mark);
 });
 
-/* click elsewhere closes popover */
+/* click elsewhere closes popover (but not when a fresh text selection is being made) */
 document.addEventListener('mousedown', (e) => {
-  if (e.target === addBtn || addBtn.contains(e.target)) return;
   if (popover.style.display === 'block' && !popover.contains(e.target) && !e.target.closest('mark.anno')) {
-    closePopover();
+    // only auto-close the read-only viewer; keep an in-progress editor open
+    if (!popover.querySelector('textarea')) closePopover();
   }
 });
 
