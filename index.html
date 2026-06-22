@@ -229,12 +229,39 @@
   .doc a { color: var(--accent); }
 
   mark.anno {
-    background: var(--hl); border-radius: 2px; cursor: pointer; padding: 1px 0;
-    transition: background .15s; color: inherit;
+    border-radius: 2px; cursor: pointer; padding: 1px 0; color: inherit;
+    transition: background .15s, box-shadow .15s, filter .15s;
+  }
+  /* comment marks: yellow + underline so they read as "has a note" */
+  mark.anno.note {
+    background: var(--hl);
     text-decoration: underline; text-decoration-color: var(--hl-active); text-underline-offset: 2px;
   }
-  mark.anno:hover { background: var(--hl-active); }
-  mark.anno.active { background: var(--hl-active); box-shadow: 0 0 0 2px var(--hl-active); }
+  mark.anno.note:hover { background: var(--hl-active); }
+  /* plain highlight marks: just a color wash (background set inline per color) */
+  mark.anno.hl:hover { filter: brightness(.93); }
+  mark.anno.active { box-shadow: 0 0 0 2px var(--hl-active); }
+
+  /* selection toolbar — highlight colors or comment */
+  #selbar {
+    position: fixed; z-index: 55; display: none; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 9px; box-shadow: var(--shadow-lg); animation: popIn .12s ease-out;
+  }
+  #selbar .swatches, .pop-swatches { display: flex; gap: 6px; }
+  .pop-swatches { padding: 10px 14px 2px; }
+  .swatch {
+    width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(125,125,125,.35);
+    cursor: pointer; padding: 0; transition: transform .1s;
+  }
+  .swatch:hover { transform: scale(1.18); }
+  .swatch.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  #selbar .divider { width: 1px; height: 22px; background: var(--line); }
+  #selbar .sb-comment {
+    border: none; background: none; cursor: pointer; font-size: 12.5px; font-weight: 700;
+    color: var(--accent); padding: 2px 6px 2px 2px; display: flex; align-items: center; gap: 4px; font-family: inherit;
+  }
+  #selbar .sb-comment:hover { filter: brightness(1.12); }
 
   /* coachmark — fixed bottom toast, never overlaps content */
   #coach {
@@ -363,6 +390,7 @@
 
     <div id="coach"></div>
     <div id="popover"></div>
+    <div id="selbar"></div>
     <div id="toast"></div>
   </main>
 
@@ -383,8 +411,8 @@
         </div>
         <div class="step">
           <div class="ic">🖍️</div>
-          <div><div class="st-t">2 · Select text to comment</div>
-          <div class="st-d">Drag to select any sentence, type your note, and it turns into a highlight.</div></div>
+          <div><div class="st-t">2 · Select text to highlight or comment</div>
+          <div class="st-d">Drag to select any sentence: pick a highlight color, or hit 💬 Comment to attach a note.</div></div>
         </div>
         <div class="step">
           <div class="ic">💬</div>
@@ -501,11 +529,11 @@ function buildTOC() {
 
 function refreshBadges() {
   state.chapters.forEach(ch => {
-    const n = state.annotations.filter(a => a.chapterId === ch.id && !a.orphan).length;
+    const n = state.annotations.filter(a => a.chapterId === ch.id && !a.orphan && a.comment).length;
     const badge = tocPanel.querySelector(`[data-badge-for="${ch.id}"]`);
     if (badge) { badge.textContent = n; badge.style.display = n ? 'inline-flex' : 'none'; }
   });
-  document.getElementById('commentCount').textContent = state.annotations.length;
+  document.getElementById('commentCount').textContent = state.annotations.filter(a => a.comment).length;
 }
 
 /* ---------- Offset + anchoring helpers ---------- */
@@ -544,7 +572,7 @@ function locate(chapterEl, anno) {
   return null;
 }
 
-function wrapRange(chapterEl, start, end, annoId) {
+function wrapRange(chapterEl, start, end, anno) {
   const walker = document.createTreeWalker(chapterEl, NodeFilter.SHOW_TEXT);
   let pos = 0, n; const ranges = [];
   while ((n = walker.nextNode())) {
@@ -560,7 +588,9 @@ function wrapRange(chapterEl, start, end, annoId) {
       const range = document.createRange();
       range.setStart(r.node, r.s); range.setEnd(r.node, r.e);
       const mark = document.createElement('mark');
-      mark.className = 'anno'; mark.dataset.annoId = annoId;
+      mark.className = 'anno ' + (anno.comment ? 'note' : 'hl');
+      mark.dataset.annoId = anno.id;
+      if (!anno.comment) mark.style.background = HL_COLORS[anno.color] || HL_COLORS[DEFAULT_HL];
       mark.setAttribute('tabindex', '0'); mark.setAttribute('role', 'button');
       range.surroundContents(mark);
     } catch (err) {}
@@ -579,7 +609,7 @@ function applyAllHighlights() {
     const loc = locate(ch.el, a);
     if (!loc) { a.orphan = true; return; }
     a.orphan = false; a.start = loc.start; a.end = loc.end;
-    wrapRange(ch.el, loc.start, loc.end, a.id);
+    wrapRange(ch.el, loc.start, loc.end, a);
   });
   refreshBadges();
   buildCommentsList();
@@ -588,12 +618,13 @@ function applyAllHighlights() {
 /* ---------- Comments list ---------- */
 function buildCommentsList() {
   commentsPanel.innerHTML = '';
-  if (!state.annotations.length) {
-    commentsPanel.innerHTML = '<div class="clist-empty">No comments yet.<br/>Select any text in the document to add one.</div>';
+  const comments = state.annotations.filter(a => a.comment);
+  if (!comments.length) {
+    commentsPanel.innerHTML = '<div class="clist-empty">No comments yet.<br/>Select text, then choose a 🖍️ highlight color or 💬 Comment.</div>';
     return;
   }
   const order = new Map(state.chapters.map((c, i) => [c.id, i]));
-  const sorted = [...state.annotations].sort((a, b) =>
+  const sorted = comments.sort((a, b) =>
     (order.get(a.chapterId) - order.get(b.chapterId)) || (a.start - b.start));
   sorted.forEach(a => {
     const ch = state.chapters.find(c => c.id === a.chapterId);
@@ -617,40 +648,104 @@ function buildCommentsList() {
   });
 }
 
-/* ---------- Selection -> editor ---------- */
+/* ---------- Highlight colors ---------- */
+const HL_COLORS = {
+  yellow: 'rgba(255,221,87,.55)',
+  green:  'rgba(96,214,143,.5)',
+  pink:   'rgba(255,135,170,.5)',
+  blue:   'rgba(120,170,255,.5)'
+};
+const HL_ORDER = ['yellow', 'green', 'pink', 'blue'];
+const DEFAULT_HL = 'yellow';
+
+/* ---------- Selection -> highlight toolbar ---------- */
+const selbar = document.getElementById('selbar');
+let pendingSel = null;
+
+(function buildSelbar() {
+  selbar.innerHTML = '<div class="swatches"></div><div class="divider"></div>' +
+    '<button class="sb-comment" type="button">💬 Comment</button>';
+  const sw = selbar.querySelector('.swatches');
+  HL_ORDER.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'swatch'; b.type = 'button';
+    b.style.background = HL_COLORS[c]; b.title = 'Highlight (' + c + ')';
+    b.onmousedown = (e) => { e.preventDefault(); createHighlight(c); };
+    sw.appendChild(b);
+  });
+  selbar.querySelector('.sb-comment').onmousedown = (e) => { e.preventDefault(); startCommentFromSel(); };
+})();
+
 document.addEventListener('mouseup', (e) => {
   if (popover.contains(e.target)) return;
-  if (e.target.closest && e.target.closest('mark.anno')) return;
-  setTimeout(maybeStartComment, 10);
+  if (e.target.closest && (e.target.closest('mark.anno') || e.target.closest('#selbar'))) return;
+  setTimeout(showSelectionTools, 10);
 });
 
-function maybeStartComment() {
-  if (popover.style.display === 'block') return;
+function getSelInfo() {
+  if (popover.style.display === 'block') return null;
   const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-  if (sel.toString().trim().length < 2) return;
-
-  let range = sel.getRangeAt(0);
-  if (!docEl.contains(range.commonAncestorContainer)) return;
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  if (sel.toString().trim().length < 2) return null;
+  const range = sel.getRangeAt(0);
+  if (!docEl.contains(range.commonAncestorContainer)) return null;
   const chStart = chapterOfNode(range.startContainer);
   const chEnd = chapterOfNode(range.endContainer);
-  if (!chStart) return;
-  if (chEnd && chEnd !== chStart) return; // ignore cross-chapter selections
+  if (!chStart || (chEnd && chEnd !== chStart)) return null;
   const start = getOffsetWithin(chStart, range.startContainer, range.startOffset);
   const end   = getOffsetWithin(chStart, range.endContainer, range.endOffset);
-  if (start == null || end == null || end <= start) return;
-
-  const text = chStart.textContent.slice(start, end);
-  const rect = range.getBoundingClientRect();
-  dismissCoach();
-  state.pending = {
-    id: 'a' + Date.now() + Math.floor(Math.random()*1000),
-    chapterId: chStart.dataset.chapterId, start, end, text,
-    comment: '', author: authorInput.value.trim()
+  if (start == null || end == null || end <= start) return null;
+  return {
+    chapterId: chStart.dataset.chapterId, start, end,
+    text: chStart.textContent.slice(start, end),
+    rect: range.getBoundingClientRect()
   };
-  sel.removeAllRanges();
+}
+
+function showSelectionTools() {
+  const info = getSelInfo();
+  if (!info) { hideSelbar(); return; }
+  pendingSel = info;
+  dismissCoach();
+  selbar.style.display = 'flex';
+  const w = selbar.offsetWidth, h = selbar.offsetHeight, m = 8, r = info.rect;
+  let left = r.left + r.width / 2 - w / 2;
+  left = Math.max(m, Math.min(left, window.innerWidth - w - m));
+  let top = r.top - h - 8;
+  if (top < m) top = r.bottom + 8;
+  selbar.style.left = left + 'px';
+  selbar.style.top = top + 'px';
+}
+function hideSelbar() { selbar.style.display = 'none'; pendingSel = null; }
+
+function newAnno(extra) {
+  return Object.assign({
+    id: 'a' + Date.now() + Math.floor(Math.random() * 1000),
+    chapterId: pendingSel.chapterId, start: pendingSel.start, end: pendingSel.end,
+    text: pendingSel.text, comment: '', author: authorInput.value.trim()
+  }, extra);
+}
+
+function createHighlight(color) {
+  if (!pendingSel) return;
+  const anno = newAnno({ color });
+  state.annotations.push(anno);
+  applyAllHighlights(); persist();
+  window.getSelection().removeAllRanges();
+  hideSelbar(); flashMark(anno.id);
+}
+
+function startCommentFromSel() {
+  if (!pendingSel) return;
+  const rect = pendingSel.rect;
+  state.pending = newAnno({ color: DEFAULT_HL });
+  window.getSelection().removeAllRanges();
+  hideSelbar();
   openEditor(state.pending, rect);
 }
+
+/* keep the old name working for any internal callers */
+function maybeStartComment() { showSelectionTools(); }
 
 /* ---------- Panel placement ---------- */
 function placePopover(rect) {
@@ -721,10 +816,12 @@ function openViewer(anno, markEl) {
 
 function openEditor2(anno) {
   const mark = docEl.querySelector(`mark.anno[data-anno-id="${anno.id}"]`);
+  const wasComment = !!anno.comment;
+  const back = () => wasComment ? openViewer(anno, mark) : openHighlightMenu(anno, mark);
   popover.innerHTML =
-    `<div class="pop-head">Edit comment <button class="icon-x" data-act="cancel" aria-label="Cancel">✕</button></div>
+    `<div class="pop-head">${wasComment ? 'Edit comment' : 'Add comment'} <button class="icon-x" data-act="cancel" aria-label="Cancel">✕</button></div>
      <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
-     <textarea>${escapeHtml(anno.comment)}</textarea>
+     <textarea placeholder="Write your comment…">${escapeHtml(anno.comment)}</textarea>
      <div class="pop-actions">
        <button class="btn" data-act="cancel">Cancel</button>
        <button class="btn primary" data-act="save">Save</button>
@@ -732,16 +829,43 @@ function openEditor2(anno) {
   placePopover(mark ? mark.getBoundingClientRect() : null);
   const ta = popover.querySelector('textarea'); ta.focus();
   const saveBtn = popover.querySelector('[data-act="save"]');
+  saveBtn.disabled = !ta.value.trim();
   ta.addEventListener('input', () => { saveBtn.disabled = !ta.value.trim(); });
   saveBtn.onclick = () => {
     const v = ta.value.trim(); if (!v) { ta.focus(); return; }
-    anno.comment = v; persist(); buildCommentsList(); closePopover();
+    anno.comment = v; applyAllHighlights(); persist(); buildCommentsList(); closePopover();
   };
-  popover.querySelector('[data-act="cancel"]').onclick = () => openViewer(anno, mark);
+  popover.querySelector('[data-act="cancel"]').onclick = back;
   ta.addEventListener('keydown', e => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
-    if (e.key === 'Escape') openViewer(anno, mark);
+    if (e.key === 'Escape') back();
   });
+}
+
+function openHighlightMenu(anno, markEl) {
+  setActiveMark(anno.id);
+  const swatches = HL_ORDER.map(c =>
+    `<button class="swatch${(anno.color || DEFAULT_HL) === c ? ' sel' : ''}" data-color="${c}" style="background:${HL_COLORS[c]}" title="${c}"></button>`).join('');
+  popover.innerHTML =
+    `<div class="pop-head">Highlight <button class="icon-x" data-act="close" aria-label="Close">✕</button></div>
+     <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
+     <div class="pop-swatches">${swatches}</div>
+     <div class="pop-actions">
+       <button class="btn" data-act="comment">💬 Add comment</button>
+       <button class="btn" data-act="remove">Remove</button>
+     </div>`;
+  placePopover(markEl ? markEl.getBoundingClientRect() : null);
+  popover.querySelector('[data-act="close"]').onclick = closePopover;
+  popover.querySelectorAll('.pop-swatches .swatch').forEach(b => b.onclick = () => {
+    anno.color = b.dataset.color; applyAllHighlights(); persist();
+    popover.querySelectorAll('.pop-swatches .swatch').forEach(x => x.classList.toggle('sel', x === b));
+    setActiveMark(anno.id);
+  });
+  popover.querySelector('[data-act="comment"]').onclick = () => openEditor2(anno);
+  popover.querySelector('[data-act="remove"]').onclick = () => {
+    state.annotations = state.annotations.filter(a => a.id !== anno.id);
+    applyAllHighlights(); persist(); closePopover();
+  };
 }
 
 function closePopover() {
@@ -759,19 +883,21 @@ function flashMark(id) {
 }
 
 /* click / keyboard a highlight to view */
+function openAnno(anno, mark) { (anno.comment ? openViewer : openHighlightMenu)(anno, mark); }
 docEl.addEventListener('click', (e) => {
   const mark = e.target.closest('mark.anno'); if (!mark) return;
   e.stopPropagation();
   const anno = state.annotations.find(a => a.id === mark.dataset.annoId);
-  if (anno) openViewer(anno, mark);
+  if (anno) openAnno(anno, mark);
 });
 docEl.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const mark = e.target.closest && e.target.closest('mark.anno'); if (!mark) return;
   e.preventDefault();
   const anno = state.annotations.find(a => a.id === mark.dataset.annoId);
-  if (anno) openViewer(anno, mark);
+  if (anno) openAnno(anno, mark);
 });
+mainEl.addEventListener('scroll', () => { if (selbar.style.display === 'flex') hideSelbar(); });
 document.addEventListener('mousedown', (e) => {
   if (popover.style.display === 'block' && !popover.contains(e.target) && !e.target.closest('mark.anno')) {
     // viewer (no textarea) and empty editors close on click-away; only a draft with typed text is kept
@@ -899,7 +1025,7 @@ function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 function place(r){const W=320,g=18,m=12;popover.style.display='block';if(!r)return;let l=r.right+g;if(l+W>innerWidth-m)l=r.left-W-g;if(l<m)l=Math.max(m,innerWidth-W-m);popover.style.left=l+'px';popover.style.top=r.top+'px';requestAnimationFrame(()=>{const h=popover.offsetHeight;let t=r.top;if(t+h>innerHeight-m)t=innerHeight-h-m;if(t<m)t=m;popover.style.top=t+'px'})}
 function view(a,el){document.querySelectorAll('mark.anno.active').forEach(m=>m.classList.remove('active'));document.querySelectorAll('mark.anno[data-anno-id="'+a.id+'"]').forEach(m=>m.classList.add('active'));popover.innerHTML='<div class="pop-head">Comment <button class="icon-x" id="cx">✕</button></div><div class="pop-quote">“'+esc(a.text)+'”</div><div class="pop-body">'+esc(a.comment)+'</div>'+(a.author?'<div class="pop-author">— '+esc(a.author)+'</div>':'<div style="height:10px"></div>');place(el?el.getBoundingClientRect():null);document.getElementById('cx').onclick=close_}
 function close_(){popover.style.display='none';document.querySelectorAll('mark.anno.active').forEach(m=>m.classList.remove('active'))}
-docEl.addEventListener('click',e=>{const m=e.target.closest('mark.anno');if(!m)return;const a=ANNOS.find(x=>x.id===m.dataset.annoId);if(a)view(a,m)});
+docEl.addEventListener('click',e=>{const m=e.target.closest('mark.anno');if(!m)return;const a=ANNOS.find(x=>x.id===m.dataset.annoId);if(a&&a.comment)view(a,m)});
 document.addEventListener('mousedown',e=>{if(popover.style.display==='block'&&!popover.contains(e.target)&&!e.target.closest('mark.anno'))close_()});
 <\/script>
 </body></html>`;
@@ -979,7 +1105,7 @@ function maybeShowCoach() {
   if (!localStorage.getItem('annoreader:onboarded')) return;   // wait until the welcome guide is dismissed
   if (onboarding && onboarding.classList.contains('show')) return;
   if (!docEl.querySelector('p')) return;
-  coach.innerHTML = '👆 Select any text to add a comment <span class="x" id="coachX" aria-label="Dismiss">✕</span>';
+  coach.innerHTML = '👆 Select any text to highlight or comment <span class="x" id="coachX" aria-label="Dismiss">✕</span>';
   coach.style.display = 'flex';
   document.getElementById('coachX').onclick = (e) => { e.stopPropagation(); dismissCoach(); };
 }
