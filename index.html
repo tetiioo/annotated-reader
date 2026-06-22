@@ -206,6 +206,8 @@
   .btn:hover { background: var(--accent-soft); border-color: var(--accent); }
   .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .btn.primary:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; filter: none; background: var(--accent); }
+  .btn:disabled:hover { filter: none; }
   .btn-row { display: flex; gap: 7px; }
   .btn-row .btn { flex: 1; }
   .group-label { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 4px 2px 0; font-weight: 700; }
@@ -679,6 +681,9 @@ function openEditor(anno, rect) {
      </div>`;
   placePopover(rect);
   const ta = popover.querySelector('textarea'); ta.focus();
+  const saveBtn = popover.querySelector('[data-act="save"]');
+  saveBtn.disabled = true;
+  ta.addEventListener('input', () => { saveBtn.disabled = !ta.value.trim(); });
   popover.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
     if (b.dataset.act === 'save') {
       const val = ta.value.trim(); if (!val) { ta.focus(); return; }
@@ -689,7 +694,7 @@ function openEditor(anno, rect) {
     } else closePopover();
   });
   ta.addEventListener('keydown', e => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') popover.querySelector('[data-act="save"]').click();
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
     if (e.key === 'Escape') closePopover();
   });
 }
@@ -726,13 +731,15 @@ function openEditor2(anno) {
      </div>`;
   placePopover(mark ? mark.getBoundingClientRect() : null);
   const ta = popover.querySelector('textarea'); ta.focus();
-  popover.querySelector('[data-act="save"]').onclick = () => {
+  const saveBtn = popover.querySelector('[data-act="save"]');
+  ta.addEventListener('input', () => { saveBtn.disabled = !ta.value.trim(); });
+  saveBtn.onclick = () => {
     const v = ta.value.trim(); if (!v) { ta.focus(); return; }
     anno.comment = v; persist(); buildCommentsList(); closePopover();
   };
   popover.querySelector('[data-act="cancel"]').onclick = () => openViewer(anno, mark);
   ta.addEventListener('keydown', e => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') popover.querySelector('[data-act="save"]').click();
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
     if (e.key === 'Escape') openViewer(anno, mark);
   });
 }
@@ -767,7 +774,9 @@ docEl.addEventListener('keydown', (e) => {
 });
 document.addEventListener('mousedown', (e) => {
   if (popover.style.display === 'block' && !popover.contains(e.target) && !e.target.closest('mark.anno')) {
-    if (!popover.querySelector('textarea')) closePopover();
+    // viewer (no textarea) and empty editors close on click-away; only a draft with typed text is kept
+    const ta = popover.querySelector('textarea');
+    if (!ta || !ta.value.trim()) closePopover();
   }
 });
 
@@ -967,6 +976,8 @@ themeToggle.onclick = () => {
 /* ---------- Coachmark ---------- */
 function maybeShowCoach() {
   if (localStorage.getItem('annoreader:coached')) return;
+  if (!localStorage.getItem('annoreader:onboarded')) return;   // wait until the welcome guide is dismissed
+  if (onboarding && onboarding.classList.contains('show')) return;
   if (!docEl.querySelector('p')) return;
   coach.innerHTML = '👆 Select any text to add a comment <span class="x" id="coachX" aria-label="Dismiss">✕</span>';
   coach.style.display = 'flex';
@@ -1006,7 +1017,7 @@ document.getElementById('sampleBtn').onclick = () => {
 /* ---------- Onboarding / help ---------- */
 const onboarding = document.getElementById('onboarding');
 function openOnboarding() { onboarding.classList.add('show'); }
-function closeOnboarding() { onboarding.classList.remove('show'); localStorage.setItem('annoreader:onboarded', '1'); }
+function closeOnboarding() { onboarding.classList.remove('show'); localStorage.setItem('annoreader:onboarded', '1'); maybeShowCoach(); }
 document.getElementById('helpBtn').onclick = openOnboarding;
 document.getElementById('privacyBadge').onclick = openOnboarding;
 document.getElementById('obClose').onclick = closeOnboarding;
@@ -1019,8 +1030,13 @@ onboarding.addEventListener('mousedown', e => { if (e.target === onboarding) clo
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && onboarding.classList.contains('show')) closeOnboarding(); });
 
 /* ---------- Start ---------- */
-if (!loadFromHash()) loadDocument(SAMPLE);
-if (!localStorage.getItem('annoreader:onboarded')) openOnboarding();
+const firstVisit = !localStorage.getItem('annoreader:onboarded');
+if (!loadFromHash()) {
+  // First-timers get the welcome guide over the empty state; the sample loads when
+  // they pick "Explore the sample". Returning visitors go straight to the sample.
+  if (!firstVisit) loadDocument(SAMPLE);
+}
+if (firstVisit) openOnboarding();
 </script>
 </body>
 </html>
