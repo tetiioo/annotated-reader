@@ -55,6 +55,9 @@
     overflow: hidden;
   }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  }
 
   /* ---- Sidebar ---- */
   .sidebar {
@@ -246,6 +249,9 @@
   /* plain highlight marks: just a color wash (background set inline per color) */
   mark.anno.hl:hover { filter: brightness(.93); }
   mark.anno.active { box-shadow: 0 0 0 2px var(--hl-active); }
+  /* in dark mode the pastel tints are light, so force dark text for readable contrast */
+  :root[data-theme="dark"] mark.anno.hl { color: #1a1a1f; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) mark.anno.hl { color: #1a1a1f; } }
 
   /* selection toolbar — highlight colors or comment */
   #selbar {
@@ -321,6 +327,17 @@
   }
   #popover .pop-body { padding: 6px 14px 4px; font-size: 14px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
   #popover .pop-author { padding: 0 14px 12px; font-size: 11.5px; color: var(--muted); }
+  #popover .pop-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px 0; gap: 8px;
+  }
+  #popover .pop-nav .nav-btn {
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    border-radius: 7px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  #popover .pop-nav .nav-btn:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+  #popover .pop-nav .nav-btn:disabled { opacity: .4; cursor: default; }
+  #popover .pop-nav .nav-pos { font-size: 11.5px; color: var(--muted); font-weight: 600; }
   #popover .pop-actions { display: flex; gap: 8px; padding: 6px 14px 14px; }
   #popover .pop-actions .btn { flex: 1; padding: 7px; }
   .icon-x { cursor:pointer; color: var(--muted); font-weight: 700; border: none; background: none; font-size: 14px; padding: 2px 4px; }
@@ -405,7 +422,7 @@
     </div>
 
     <div id="coach"></div>
-    <div id="popover"></div>
+    <div id="popover" role="dialog" aria-modal="true" aria-label="Annotation"></div>
     <div id="selbar"></div>
     <div id="toast"></div>
   </main>
@@ -632,16 +649,19 @@ function applyAllHighlights() {
 }
 
 /* ---------- Comments list ---------- */
+// comments in document order — shared by the list and the viewer's prev/next nav
+function orderedComments() {
+  const order = new Map(state.chapters.map((c, i) => [c.id, i]));
+  return state.annotations.filter(a => a.comment).sort((a, b) =>
+    (order.get(a.chapterId) - order.get(b.chapterId)) || (a.start - b.start));
+}
 function buildCommentsList() {
   commentsPanel.innerHTML = '';
-  const comments = state.annotations.filter(a => a.comment);
-  if (!comments.length) {
+  const sorted = orderedComments();
+  if (!sorted.length) {
     commentsPanel.innerHTML = '<div class="clist-empty">No comments yet.<br/>Select text, then choose a 🖍️ highlight color or 💬 Comment.</div>';
     return;
   }
-  const order = new Map(state.chapters.map((c, i) => [c.id, i]));
-  const sorted = comments.sort((a, b) =>
-    (order.get(a.chapterId) - order.get(b.chapterId)) || (a.start - b.start));
   sorted.forEach(a => {
     const ch = state.chapters.find(c => c.id === a.chapterId);
     const item = document.createElement('div');
@@ -841,10 +861,28 @@ function openEditor(anno, rect) {
   });
 }
 
+function gotoComment(target) {
+  const mark = docEl.querySelector(`mark.anno[data-anno-id="${target.id}"]`);
+  if (mark) {
+    mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setActiveMark(target.id);
+    setTimeout(() => openViewer(target, mark), 220);
+  } else openViewer(target, null);
+}
+
 function openViewer(anno, markEl) {
   setActiveMark(anno.id);
+  const ordered = orderedComments();
+  const idx = ordered.findIndex(a => a.id === anno.id);
+  const nav = ordered.length > 1 ? `
+     <div class="pop-nav">
+       <button class="nav-btn" data-act="prev" ${idx <= 0 ? 'disabled' : ''} aria-label="Previous comment">‹ Prev</button>
+       <span class="nav-pos">${idx + 1} of ${ordered.length}</span>
+       <button class="nav-btn" data-act="next" ${idx >= ordered.length - 1 ? 'disabled' : ''} aria-label="Next comment">Next ›</button>
+     </div>` : '';
   popover.innerHTML =
     `<div class="pop-head">Comment <button class="icon-x" data-act="close" aria-label="Close">✕</button></div>
+     ${nav}
      ${anno.orphan ? '<div class="pop-orphan">⚠️ The highlighted text has changed or was removed, so this comment can’t be located in the document. It’s kept below.</div>' : ''}
      <div class="pop-quote">“${escapeHtml(anno.text)}”</div>
      <div class="pop-body">${escapeHtml(anno.comment)}</div>
@@ -859,6 +897,15 @@ function openViewer(anno, markEl) {
   popover.querySelector('[data-act="delete"]').onclick = () => {
     state.annotations = state.annotations.filter(a => a.id !== anno.id);
     applyAllHighlights(); persist(); closePopover();
+  };
+  const prevBtn = popover.querySelector('[data-act="prev"]');
+  const nextBtn = popover.querySelector('[data-act="next"]');
+  if (prevBtn) prevBtn.onclick = () => { if (idx > 0) gotoComment(ordered[idx - 1]); };
+  if (nextBtn) nextBtn.onclick = () => { if (idx < ordered.length - 1) gotoComment(ordered[idx + 1]); };
+  // keyboard: Alt+↑/↓ steps through comments
+  popover.onkeydown = (e) => {
+    if (e.altKey && e.key === 'ArrowUp' && idx > 0) { e.preventDefault(); gotoComment(ordered[idx - 1]); }
+    if (e.altKey && e.key === 'ArrowDown' && idx < ordered.length - 1) { e.preventDefault(); gotoComment(ordered[idx + 1]); }
   };
 }
 
@@ -960,6 +1007,10 @@ document.addEventListener('mousedown', (e) => {
     const ta = popover.querySelector('textarea');
     if (!ta || !ta.value.trim()) closePopover();
   }
+});
+// Escape closes the viewer / highlight menu from anywhere (editors handle their own Escape)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && popover.style.display === 'block' && !popover.querySelector('textarea')) closePopover();
 });
 
 /* ---------- Persistence (content-hash key) ---------- */
@@ -1080,7 +1131,11 @@ projectInput.onchange = e => {
 /* ---------- Export self-contained annotated webpage ---------- */
 document.getElementById('exportHtmlBtn').onclick = () => {
   const docHtml = docEl.outerHTML; // includes applied <mark>s
-  const annos = JSON.stringify(state.annotations);
+  // escape for safe embedding inside a script literal: a comment containing a
+  // closing script tag or U+2028/U+2029 would otherwise break the exported page
+  const annos = JSON.stringify(state.annotations)
+    .replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   const css = document.querySelector('style').textContent;
   const html =
 `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
@@ -1128,9 +1183,11 @@ document.getElementById('shareBtn').onclick = async () => {
 /* Load a shared doc+comments from the URL hash, if present */
 function loadFromHash() {
   const m = location.hash.match(/[#&]doc=([^&]+)/);
-  if (!m || typeof LZString === 'undefined') return false;
+  if (!m) return false;  // no shared link → let the normal start flow run
+  if (typeof LZString === 'undefined') { setTimeout(() => toast('Share library still loading — reload to open this link.'), 300); return true; }
   try {
-    const obj = JSON.parse(LZString.decompressFromEncodedURIComponent(m[1]));
+    const decoded = LZString.decompressFromEncodedURIComponent(m[1]);
+    const obj = decoded && JSON.parse(decoded);
     if (obj && typeof obj.m === 'string') {
       loadDocument(obj.m, Array.isArray(obj.a) ? obj.a : []);
       const n = obj.a ? obj.a.length : 0;
@@ -1139,12 +1196,15 @@ function loadFromHash() {
       return true;
     }
   } catch (e) {}
-  return false;
+  // hash was present but couldn't be decoded — surface it instead of silently showing the sample
+  setTimeout(() => toast('This share link looks incomplete or corrupted — it may have been truncated. Ask the sender to use “Save project” or “Download .md with comments” instead.'), 300);
+  return true;
 }
 
 let toastTimer;
 function toast(msg) {
   const t = document.getElementById('toast');
+  coach.style.display = 'none';  // never stack a toast on top of the coachmark (same anchor)
   t.textContent = msg; t.style.display = 'block';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.style.display = 'none', 4000);
