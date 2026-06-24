@@ -1020,6 +1020,9 @@ docEl.addEventListener('keydown', (e) => {
 });
 mainEl.addEventListener('scroll', () => { if (selbar.style.display === 'flex') hideSelbar(); });
 document.addEventListener('mousedown', (e) => {
+  // ignore clicks on the selection toolbar — its "Comment" button opens the editor,
+  // and that same mousedown must not be treated as a click-away that closes it
+  if (e.target.closest && e.target.closest('#selbar')) return;
   if (popover.style.display === 'block' && !popover.contains(e.target) && !e.target.closest('mark.anno')) {
     // viewer (no textarea) and empty editors close on click-away; only a draft with typed text is kept
     const ta = popover.querySelector('textarea');
