@@ -590,14 +590,21 @@ function chapterOfNode(node) {
 }
 
 /* Re-locate an annotation by quote text (survives small doc edits). */
-function locate(chapterEl, anno) {
+function locate(chapterEl, anno, claimed) {
   const txt = chapterEl.textContent;
-  if (anno.text && txt.slice(anno.start, anno.end) === anno.text) return { start: anno.start, end: anno.end };
+  // a candidate span is unusable if another annotation has already claimed it this pass
+  const taken = (s, e) => claimed && claimed.some(([cs, ce]) => s < ce && e > cs);
+  if (anno.text && txt.slice(anno.start, anno.end) === anno.text && !taken(anno.start, anno.end)) {
+    return { start: anno.start, end: anno.end };
+  }
   if (anno.text) {
     let from = txt.indexOf(anno.text), best = -1, bestDist = Infinity;
     while (from !== -1) {
-      const d = Math.abs(from - anno.start);
-      if (d < bestDist) { bestDist = d; best = from; }
+      const e = from + anno.text.length;
+      if (!taken(from, e)) {
+        const d = Math.abs(from - anno.start);
+        if (d < bestDist) { bestDist = d; best = from; }
+      }
       from = txt.indexOf(anno.text, from + 1);
     }
     if (best !== -1) return { start: best, end: best + anno.text.length };
@@ -616,6 +623,7 @@ function wrapRange(chapterEl, start, end, anno) {
     pos = nodeEnd;
     if (pos >= end) break;
   }
+  let wrapped = 0;
   ranges.reverse().forEach(r => {
     try {
       const range = document.createRange();
@@ -626,8 +634,10 @@ function wrapRange(chapterEl, start, end, anno) {
       if (!anno.comment) mark.style.background = HL_COLORS[anno.color] || HL_COLORS[DEFAULT_HL];
       mark.setAttribute('tabindex', '0'); mark.setAttribute('role', 'button');
       range.surroundContents(mark);
+      wrapped++;
     } catch (err) {}
   });
+  return wrapped > 0;   // false if nothing actually got marked → caller treats as orphan
 }
 
 function applyAllHighlights() {
@@ -636,14 +646,22 @@ function applyAllHighlights() {
     while (m.firstChild) parent.insertBefore(m.firstChild, m);
     parent.removeChild(m); parent.normalize();
   });
-  state.annotations.forEach(a => {
-    const ch = state.chapters.find(c => c.id === a.chapterId);
-    if (!ch) { a.orphan = true; return; }
-    const loc = locate(ch.el, a);
-    if (!loc) { a.orphan = true; return; }
-    a.orphan = false; a.start = loc.start; a.end = loc.end;
-    wrapRange(ch.el, loc.start, loc.end, a);
-  });
+  // Resolve in document order, tracking claimed spans per chapter so two annotations
+  // on identical text can't collapse onto the same occurrence (and never silently
+  // leave a comment marked "located" with no actual mark).
+  const order = new Map(state.chapters.map((c, i) => [c.id, i]));
+  const claimedByChapter = {};
+  [...state.annotations]
+    .sort((a, b) => (order.get(a.chapterId) - order.get(b.chapterId)) || (a.start - b.start))
+    .forEach(a => {
+      const ch = state.chapters.find(c => c.id === a.chapterId);
+      if (!ch) { a.orphan = true; return; }
+      const claimed = claimedByChapter[a.chapterId] || (claimedByChapter[a.chapterId] = []);
+      const loc = locate(ch.el, a, claimed);
+      if (!loc || !wrapRange(ch.el, loc.start, loc.end, a)) { a.orphan = true; return; }
+      a.orphan = false; a.start = loc.start; a.end = loc.end;
+      claimed.push([loc.start, loc.end]);
+    });
   refreshBadges();
   buildCommentsList();
 }
